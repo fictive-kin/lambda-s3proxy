@@ -1,0 +1,7 @@
+boto3==1.7.6
+botocore==1.10.6
+certifi==2018.4.16
+Flask==0.12.2
+pytz==2018.4
+requests==2.18.4
+zappa==0.45.1
