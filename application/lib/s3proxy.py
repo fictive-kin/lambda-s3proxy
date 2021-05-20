@@ -46,6 +46,10 @@ class S3Proxy(object):
         return format_date_time(time.mktime(dt.replace(tzinfo=pytz.UTC).timetuple()))
 
 
+    def get_file(self, key):
+        return self.s3_client.get_object(Bucket=self.s3_bucket, Key=key)
+
+
     def retrieve(self, url, abort_on_fail=True):
         if self.s3_bucket:
             if url.endswith('/'):
@@ -57,7 +61,7 @@ class S3Proxy(object):
                 s3_url = '{}/{}'.format(self.s3_prefix, s3_url)
 
             try:
-                s3_obj = self.s3_client.get_object(Bucket=self.s3_bucket, Key=s3_url)
+                s3_obj = self.get_file(s3_url)
 
                 if 'ContentLength' not in s3_obj or int(s3_obj['ContentLength']) > OVERFLOW_SIZE:
                     # URL only works for 60 seconds
@@ -73,7 +77,8 @@ class S3Proxy(object):
                     return redirect(url, 303)
 
                 self.logger.info('Returning S3 contents')
-                response = Response(response=s3_obj['Body'].read())
+                contents = s3_obj['Body'].read()
+                response = Response(response=contents)
                 if 'ContentType' in s3_obj:
                     response.headers['Content-Type'] = str(s3_obj['ContentType'])
                 if 'CacheControl' in s3_obj:
