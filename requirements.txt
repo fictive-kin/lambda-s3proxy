@@ -2,6 +2,7 @@ boto3
 botocore
 certifi
 Flask
+flask-cors
 python-dateutil<2.7.0
 pytz
 requests

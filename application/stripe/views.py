@@ -48,6 +48,21 @@ def create_checkout_session():
     scheme = 'http' if request.host == 'localhost' else 'https'
     domain_url = f'{scheme}://{request.host}'
 
+    success_url = domain_url + '/success?session_id={CHECKOUT_SESSION_ID}'
+    cancel_url = domain_url + '/cancel'
+
+    if current_app.config.get('STRIPE_SUCCESS_URL'):
+        if current_app.config['STRIPE_SUCCESS_URL'].startswith(scheme):
+            success_url = current_app.config['STRIPE_SUCCESS_URL']
+        else:
+            success_url = domain_url + current_app.config['STRIPE_SUCCESS_URL']
+
+    if current_app.config.get('STRIPE_CANCEL_URL'):
+        if current_app.config['STRIPE_CANCEL_URL'].startswith(scheme):
+            success_url = current_app.config['STRIPE_CANCEL_URL']
+        else:
+            success_url = domain_url + current_app.config['STRIPE_CANCEL_URL']
+
     try:
         # Create new Checkout Session for the order
         # Other optional params include:
@@ -59,8 +74,8 @@ def create_checkout_session():
 
         # ?session_id={CHECKOUT_SESSION_ID} means the redirect will have the session ID set as a query param
         checkout_session = stripe.checkout.Session.create(
-            success_url=domain_url + "/success?session_id={CHECKOUT_SESSION_ID}",
-            cancel_url=domain_url + "/",
+            success_url=success_url,
+            cancel_url=cancel_url,
             payment_method_types=current_app.config.get("STRIPE_PAYMENT_METHOD_TYPES", "card").split(','),
             mode="payment",
             line_items=data['items'],

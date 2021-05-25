@@ -14,11 +14,8 @@ def init_app(app, url_prefix='/stripe'):
 
     for key in REQUIRED_CONFIG_KEYS:
         if not app.config.get(key):
-            if not os.environ.get(f'FLASK_{key}'):
-                app.logger.warning('Missing required config key (%s), cannot init Stripe', key)
-                return
-            else:
-                app.config[key] = os.environ[f'FLASK_{key}']
+            app.logger.warning('Missing required config key (%s), cannot init Stripe', key)
+            return
 
     stripe.api_version = '2020-08-27'
     stripe.api_key = app.config['STRIPE_SECRET_KEY']
