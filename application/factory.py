@@ -39,6 +39,7 @@ def create_app(name):
         if key.startswith('FLASK_'):
             app.config[key.replace('FLASK_', '')] = val
 
+    app.config['S3_BUCKET'] = os.environ['S3_BUCKET']
     if not app.config.get('S3_BUCKET'):
         raise Exception('Cannot instantiate the app without S3_BUCKET set')
 
@@ -89,7 +90,7 @@ def create_app(name):
 
     @app.before_request
     def chk_shortcircuit():
-        if request.method == 'OPTIONS' and app.config['SHORTCIRCUIT_OPTIONS']):
+        if request.method == 'OPTION' and app.config['SHORTCIRCUIT_OPTIONS']:
             app.logger.debug('Shortcircuiting OPTIONS request')
             if is_allowed_origin():
                 return '', 200
