@@ -1,4 +1,5 @@
 
+import math
 import stripe
 
 from flask import (
@@ -49,7 +50,7 @@ def create_checkout_session():
     domain_url = f'{scheme}://{request.host}'
 
     success_url = domain_url + '/success?session_id={CHECKOUT_SESSION_ID}'
-    cancel_url = domain_url + '/cancel'
+    cancel_url = domain_url + '/'
 
     if current_app.config.get('STRIPE_SUCCESS_URL'):
         if current_app.config['STRIPE_SUCCESS_URL'].startswith(scheme):
@@ -59,9 +60,9 @@ def create_checkout_session():
 
     if current_app.config.get('STRIPE_CANCEL_URL'):
         if current_app.config['STRIPE_CANCEL_URL'].startswith(scheme):
-            success_url = current_app.config['STRIPE_CANCEL_URL']
+            cancel_url = current_app.config['STRIPE_CANCEL_URL']
         else:
-            success_url = domain_url + current_app.config['STRIPE_CANCEL_URL']
+            cancel_url = domain_url + current_app.config['STRIPE_CANCEL_URL']
 
     try:
         # Create new Checkout Session for the order
@@ -74,6 +75,7 @@ def create_checkout_session():
 
         # ?session_id={CHECKOUT_SESSION_ID} means the redirect will have the session ID set as a query param
         checkout_session = stripe.checkout.Session.create(
+            allow_promotion_codes=True,
             success_url=success_url,
             cancel_url=cancel_url,
             payment_method_types=current_app.config.get("STRIPE_PAYMENT_METHOD_TYPES", "card").split(','),
@@ -84,3 +86,16 @@ def create_checkout_session():
 
     except Exception as e:
         return jsonify(error=str(e)), 403
+
+# Get the available spots left from stripe
+@stripe_bp.route('/total_purchased/<product_id>/<unit_price>', methods=['GET'])
+def get_total_purchased(unit_price, product_id):
+
+    total_product = stripe.Product.retrieve(product_id)['metadata']['remaining']
+    balance = stripe.Balance.retrieve()
+    total_balance = balance['available'][0]['amount'] + balance['pending'][0]['amount']
+
+    return jsonify({
+        "remaining": int(total_product) - math.floor(int(total_balance) / int(unit_price)),
+        "total": total_product
+    })
