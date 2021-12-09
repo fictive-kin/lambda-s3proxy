@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from flask import request
+from flask import request, current_app
 import gzip
 import io
 
@@ -21,7 +21,13 @@ class GZipMiddleware(object):
             request._cached_data = clear
 
     def _after_request(self, response):
+        response.headers['Vary'] = 'Accept-Encoding, Content-Encoding'
         accept_encoding = request.headers.get('Accept-Encoding', '')
+
+        if current_app.config.get('DISABLE_GZIP', False):
+            self.app.logger.debug('Not gzipping response as per app config')
+            return response
+
         if 'gzip' not in accept_encoding.lower():
             self.app.logger.debug('Not gzipping response as per request')
             return response
@@ -41,7 +47,6 @@ class GZipMiddleware(object):
 
         response.data = gzip_buffer.getvalue()
         response.headers['Content-Encoding'] = 'gzip'
-        response.headers['Vary'] = 'Accept-Encoding'
         response.headers['Content-Length'] = len(response.data)
 
         return response
