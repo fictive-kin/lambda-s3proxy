@@ -3,6 +3,7 @@
 import os
 
 from flask import Flask, request
+from flask_cors import CORS
 
 from application.lib.gzip import GZipMiddleware
 from application.lib.s3proxy import S3Proxy
@@ -10,12 +11,13 @@ from application.views import core_views
 
 
 def create_app(name):
-    app = Flask(name)
+    app = Flask(name, static_folder=None)
     # Intentionally unguarded. If this doesn't exist, we can't do anything.
     app.config['S3_BUCKET'] = os.environ['S3_BUCKET']
     app.config['S3_PREFIX'] = os.environ.get('S3_PREFIX', None)
 
-    GZipMiddleware(app)
+    app.config.CORS_ALWAYS_SEND = True
+    CORS(app, origins=['*'])
 
     app.s3_proxy = S3Proxy(app)
 
