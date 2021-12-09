@@ -11,22 +11,11 @@ from flask_cors import CORS
 from slugify import slugify
 
 from application import stripe
+from application.redirects import FlaskJSONRedirects
 from application.lib.gzip import GZipMiddleware
 from application.lib.s3proxy import S3Proxy
 from application.views import core_views, root_view
-
-
-def str2bool(s):
-    if s == 'False' or s == 'false' or s == 'FALSE' or s == '0':
-        return False
-    return bool(s)
-
-
-def random_string(length=5):  # pylint: disable=no-self-use
-    return ''.join(
-        random.SystemRandom().choice(string.ascii_lowercase +
-                                     string.ascii_uppercase +
-                                     string.digits) for _ in range(length))
+from application.utils import str2bool, random_string
 
 
 def create_app(name):
@@ -58,6 +47,11 @@ def create_app(name):
     stripe.init_app(app)
 
     app.s3_proxy = S3Proxy(app)
+    app.redirects = FlaskJSONRedirects(app)
+
+    if os.environ.get('S3_REDIRECTS_FILE'):
+        redirects_obj = app.s3_proxy.get_file(os.environ['S3_REDIRECTS_FILE'])
+        app.redirects.init_app(app, file=redirects_obj['Body'])
 
     @app.errorhandler(404)
     def page_not_found(error):
@@ -100,41 +94,6 @@ def create_app(name):
         # deal with it directly.
         return None
 
-    root_redirect = False
-    if os.environ.get('S3_REDIRECTS_FILE'):
-        redirects_obj = app.s3_proxy.get_file(os.environ['S3_REDIRECTS_FILE'])
-        redirects_setup = json.load(redirects_obj['Body'])
-        redirects = {}
-
-        use_301s = str2bool(os.environ.get('S3_REDIRECTS_USE_301', False))
-
-        def handle_redirect(redirect_id):
-            def redirect_func(**kwargs):
-                return redirect(
-                    redirects[redirect_id].format(**kwargs),
-                    code=301 if use_301s else 302
-                )
-            return redirect_func
-
-        for item in redirects_setup.keys():
-            if item == '/':
-                root_redirect = True
-            item_slug = 'redirects-{}'.format(slugify(item))
-            if item_slug in redirects:
-                item_slug = '{}-{}'.format(item_slug, random_string(10))
-            redirects.update({item_slug: redirects_setup[item]})
-            app.add_url_rule(
-                item,
-                item_slug,
-                handle_redirect(item_slug)
-            )
-            #if item[:-1] != '/':
-            #    app.add_url_rule(
-            #        '{}/'.format(item),
-            #        '{}-slash'.format(item_slug),
-            #        handle_redirect(item_slug)
-            #    )
-   
     if app.config['ADD_CACHE_HEADERS']:
 
         @app.after_request
@@ -153,7 +112,7 @@ def create_app(name):
 
             return response
 
-    if not root_redirect:
+    if not app.config['WWW_REDIRECTOR']:
         app.register_blueprint(root_view)
 
     app.register_blueprint(core_views)
