@@ -1,7 +1,6 @@
 
 import io
 import json
-import os
 import typing
 
 from flask import Flask, redirect
@@ -9,10 +8,11 @@ from slugify import slugify
 
 from application.utils import random_string
 
+REDIRECT_CODE = 302
 
 REDIRECT_OPTIONS = [
-    "REDIRECTS_DEFAULT_STATUS_CODE",
-    "REDIRECTS_HANDLE_TRAILING_SLASH",
+    "DEFAULT_STATUS_CODE",
+    "HANDLE_TRAILING_SLASH",
 ]
 
 
@@ -20,13 +20,13 @@ class FlaskJSONRedirects:
     """A Flask extension to handle a redirects JSON file to be able to add redirected routes easily"""
 
     app: Flask = None
-    default_status_code: int = 302
+    default_status_code: int = REDIRECT_CODE
     handle_trailing_slash: bool = False
     _data: typing.Dict = None
 
     def __init__(self, app: Flask = None, *, file: typing.Union[str, io.IOBase] = None):
 
-        self.default_status_code = 302
+        self.default_status_code = REDIRECT_CODE
         self.handle_trailing_slash = False
         self._data = {}
 
@@ -48,9 +48,9 @@ class FlaskJSONRedirects:
 
         self.app = app
 
+        option_prefix = 'REDIRECTS_'
         for key in REDIRECT_OPTIONS:
-            attrname = key.replace('REDIRECTS_', '').lower()
-            setattr(self, attrname, os.environ.get(f'FLASK_{key}', app.config.get(key)))
+            setattr(self, key.lower(), app.config.get(f'{option_prefix}{key}'))
 
         self.default_status_code = int(self.default_status_code) if self.default_status_code else 302
         self.handle_trailing_slash = bool(self.handle_trailing_slash)

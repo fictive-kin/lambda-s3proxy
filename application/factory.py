@@ -6,52 +6,39 @@ import logging
 import random
 import string
 
+from dynaconf import FlaskDynaconf
 from flask import Flask, abort, request, redirect
 from flask_cors import CORS
 from slugify import slugify
 
 from application import stripe
 from application.redirects import FlaskJSONRedirects
-from application.lib.gzip import GZipMiddleware
-from application.lib.s3proxy import S3Proxy
-from application.views import core_views, root_view
-from application.utils import str2bool, random_string
+from application.s3proxy import FlaskS3Proxy
+from application.localizer import FlaskLocalizer
+from application.utils import str2bool
 
 
-def create_app(name):
+def create_app(name, log_level=logging.WARN):
     app = Flask(name, static_folder=None)
 
-    app.logger.setLevel(logging.DEBUG)
+    FlaskDynaconf(app)
 
-    # Load in what we can from the environment
-    for key,val in os.environ.items():
-        if key.startswith('FLASK_'):
-            app.config[key.replace('FLASK_', '')] = val
-
-    app.config['S3_BUCKET'] = os.environ['S3_BUCKET']
-    if not app.config.get('S3_BUCKET'):
-        raise Exception('Cannot instantiate the app without S3_BUCKET set')
-
-    app.config['S3_PREFIX'] = os.environ.get('S3_PREFIX', None)
-    app.config['DISABLE_GZIP'] = str2bool(os.environ.get('DISABLE_GZIP', '0'))
-    app.config['WWW_REDIRECTOR'] = str2bool(os.environ.get('ENABLE_ROOT_REDIRECT', '1'))
-    app.config['ENABLE_TRAILING_SLASH_REDIRECT'] = str2bool(
-        os.environ.get('ENABLE_TRAILING_SLASH_REDIRECT', '0'))
-    app.config['DROP_TRAILING_SLASH'] = str2bool(
-        os.environ.get('DROP_TRAILING_SLASH', '0'))
-    app.config['ADD_CACHE_HEADERS'] = str2bool(os.environ.get('ADD_CACHE_HEADERS', '0'))
-    app.config['ALLOWED_ORIGINS'] = os.environ.get('ALLOWED_ORIGINS', '[]')
-    app.config['SHORTCIRCUIT_OPTIONS'] = str2bool(os.environ.get('SHORTCIRCUIT_OPTIONS', '0'))
+    app.logger.setLevel(log_level)
 
     CORS(app, origins=app.config['ALLOWED_ORIGINS'], supports_credentials=True)
     stripe.init_app(app)
 
-    app.s3_proxy = S3Proxy(app)
+    app.s3_proxy = FlaskS3Proxy(app)
     app.redirects = FlaskJSONRedirects()
 
-    if os.environ.get('S3_REDIRECTS_FILE'):
-        redirects_obj = app.s3_proxy.get_file(os.environ['S3_REDIRECTS_FILE'])
+    if app.config.get('S3_REDIRECTS_FILE'):
+        redirects_obj = app.s3_proxy.get_file(app.config['S3_REDIRECTS_FILE'])
         app.redirects.init_app(app, file=redirects_obj['Body'])
+
+    app.s3_proxy.add_handled_route('/', methods=['GET', 'POST'])
+    app.s3_proxy.add_handled_route('/<path:url>', methods=['GET', 'POST'])
+
+    app.localizer = FlaskLocalizer(app)
 
     @app.errorhandler(404)
     def page_not_found(error):
@@ -111,10 +98,5 @@ def create_app(name):
                 response.headers['Vary'] = 'Accept-Encoding,Origin,Access-Control-Request-Headers,Access-Control-Request-Method'
 
             return response
-
-    if not app.config['WWW_REDIRECTOR']:
-        app.register_blueprint(root_view)
-
-    app.register_blueprint(core_views)
 
     return app

@@ -1,0 +1,37 @@
+
+[default]
+
+# Affects response headers
+ADD_CACHE_HEADERS = true
+
+# Sets the special endpoint to return the browser's location via CloudFront's geoip headers
+# This requires that the API Gateway is behind a _real_ CloudFront distro. If not set,
+# no localization endpoint is available
+# LOCALIZER_ROUTE = '/localizer'
+
+# Sets the allowed origins for CORS. Should be a list of allowed origins or '*' for any
+ALLOWED_ORIGINS = []
+
+# OPTIONS requests bypass all checks other than against ALLOWED_ORIGINS when this is true
+SHORTCIRCUIT_OPTIONS = true
+
+# Status code to use for redirects generated from FlaskJSONRedirects
+REDIRECTS_DEFAULT_STATUS_CODE = 302
+
+# True if FlaskJSONRedirects should add redirects for both `<path>` and `<path>/`
+# False to only handle explicitly defined redirects
+REDIRECTS_HANDLE_TRAILING_SLASH = true
+
+S3_REDIRECTS_FILE = 'redirects.json'
+
+# Status code to use for redirects generated from FlaskS3Proxy
+S3PROXY_REDIRECT_CODE = 302
+
+# True if FlaskS3Proxy should redirect `<path>/` to `<path>` before attempting to check S3
+S3PROXY_TRAILING_SLASH_REDIRECTION = true
+
+# The bucket that FlaskS3Proxy should check for files. This should probably be set in the env
+# S3PROXY_BUCKET = "some-bucket-name"
+
+# The prefix, if any, that FlaskS3Proxy should add to all proxied requests to S3
+# S3PROXY_PREFIX = ""
