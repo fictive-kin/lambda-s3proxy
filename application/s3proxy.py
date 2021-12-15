@@ -78,7 +78,7 @@ class FlaskS3Proxy:
 
         if url.endswith('/'):
             if self.trailing_slash_redirection:
-                return self.redirect_with_querystring(url[:-1])
+                return self.redirect_with_querystring(f'/{url[:-1]}')
 
         # Check for:
         # - /my-page
