@@ -6,6 +6,7 @@ import logging
 import random
 import string
 
+import botocore
 from dynaconf import FlaskDynaconf
 from flask import Flask, abort, request, redirect
 from flask_cors import CORS
@@ -15,7 +16,6 @@ from application import stripe
 from application.redirects import FlaskJSONRedirects
 from application.s3proxy import FlaskS3Proxy
 from application.localizer import FlaskLocalizer
-from application.utils import str2bool
 
 
 def create_app(name, log_level=logging.WARN):
@@ -32,8 +32,15 @@ def create_app(name, log_level=logging.WARN):
     app.redirects = FlaskJSONRedirects()
 
     if app.config.get('S3_REDIRECTS_FILE'):
-        redirects_obj = app.s3_proxy.get_file(app.config['S3_REDIRECTS_FILE'])
-        app.redirects.init_app(app, file=redirects_obj['Body'])
+        try:
+            redirects_obj = app.s3_proxy.get_file(app.config['S3_REDIRECTS_FILE'])
+            app.redirects.init_app(app, file=redirects_obj['Body'])
+        except botocore.exceptions.ClientError as exc:
+            if exc.response['Error']['Code'] == 'NoSuchKey':
+                app.logger.critical(
+                    f"S3_REDIRECTS_FILE does not exist: {app.config['S3_REDIRECTS_FILE']}")
+            else:
+                raise
 
     app.s3_proxy.add_handled_route('/', methods=['GET', 'POST'])
     app.s3_proxy.add_handled_route('/<path:url>', methods=['GET', 'POST'])
