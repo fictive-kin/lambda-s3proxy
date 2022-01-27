@@ -42,8 +42,9 @@ def create_app(name, log_level=logging.WARN):
             else:
                 raise
 
-    app.s3_proxy.add_handled_route('/', methods=['GET', 'POST'])
-    app.s3_proxy.add_handled_route('/<path:url>', methods=['GET', 'POST'])
+    # Due to the redirects possibly using these routes, we are adding these after having
+    # instantiated all the redirects. If not for that, we could have used a config value
+    app.s3_proxy.add_handled_routes(['/', '/<path:url>'], methods=['GET', 'POST'])
 
     app.localizer = FlaskLocalizer(app)
 

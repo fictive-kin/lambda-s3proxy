@@ -35,3 +35,6 @@ S3PROXY_TRAILING_SLASH_REDIRECTION = true
 
 # The prefix, if any, that FlaskS3Proxy should add to all proxied requests to S3
 # S3PROXY_PREFIX = ""
+
+# Routes that you want handled by FlaskS3Proxy.
+# S3PROXY_ROUTES = ["/", "/<path:url>"]

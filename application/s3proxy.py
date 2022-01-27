@@ -23,6 +23,7 @@ S3PROXY_OPTIONS = [
     "PREFIX",
     "TRAILING_SLASH_REDIRECTION",
     "REDIRECT_CODE",
+    "ROUTES",
 ]
 
 
@@ -33,6 +34,7 @@ class FlaskS3Proxy:
     prefix: str = None
     trailing_slash_redirection: bool = True
     redirect_code: int = REDIRECT_CODE
+    routes: list = None
 
     def __init__(self, app, boto3_client=None, bucket=None, prefix=None, paths=None):
         if boto3_client is None:
@@ -64,13 +66,33 @@ class FlaskS3Proxy:
         except Exception:  # pylint: disable=broad-except
             pass
 
-        if paths is not None:
-            for path in paths:
-                self.add_handled_route(path)
+        # Add any passed paths to the handled routes
+        self.add_handled_routes(paths)
+        # Add any configured paths to the handled routes
+        self.add_handled_routes(self.routes)
 
-    def add_handled_route(self, rule, **kwargs):
-        slug = slugify(rule)
-        self.app.add_url_rule(rule, endpoint=slug, view_func=self.proxy_it, **kwargs)
+    def add_handled_routes(self, paths, **kwargs):
+        if not isinstance(paths, (list, set, tuple)):
+            return
+
+        def path_to_check(path):
+            return '/<path:' if path.startswith('/<path:') and '/' not in path[1:] else path
+
+        # Don't overload the routing map if the path we want to set is already present.
+        # Handle `/<path:[^/]` specially, since that could have any variable name used within it
+        # and it is usually one of our default routes.
+        configured_paths = [path_to_check(rule.rule) for rule in self.app.url_map.iter_rules()]
+
+        for path in paths:
+            if path_to_check(path) not in configured_paths:
+                self.add_handled_route(path, **kwargs)
+            else:
+                self.app.logger.warning(
+                    f"Not using S3 Proxy for '{path}'. It was already defined in the routing map.")
+
+    def add_handled_route(self, path, **kwargs):
+        slug = slugify(path)
+        self.app.add_url_rule(path, endpoint=slug, view_func=self.proxy_it, **kwargs)
 
     def proxy_it(self, url=None):
         if url is None:
