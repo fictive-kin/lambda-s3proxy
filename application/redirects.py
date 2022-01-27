@@ -114,7 +114,7 @@ class FlaskJSONRedirects:
             self.handle_redirect(redirect_id, status_code)
         )
 
-        if handle_trailing_slash:
+        if handle_trailing_slash and uri != '/':
             opposite_uri = f'{uri}/' if uri[-1] != '/' else uri[:-1]
             self.app.add_url_rule(
                 opposite_uri,
