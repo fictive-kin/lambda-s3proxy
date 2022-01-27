@@ -1,6 +1,7 @@
 
 import io
 import json
+import re
 import typing
 
 from flask import Flask, Response, request
@@ -22,11 +23,13 @@ class FlaskJSONAuthorizer:
     app: Flask = None
     default_realm: str = None
     routes: typing.Dict = None
-    _data: typing.Dict = None
+    _simple: typing.Dict = None
+    _regexes: typing.Dict = None
 
     def __init__(self, app: Flask = None, *, file: typing.Union[str, io.IOBase] = None):
 
-        self._data = {}
+        self._simple = {}
+        self._regexes = {}
         self.routes = {}
 
         if app:
@@ -59,6 +62,9 @@ class FlaskJSONAuthorizer:
         if file is not None:
             self.process_authorizations_from_file(file)
 
+        if self.routes:
+            self.proces_authorizations(self.routes)
+
         self.app.before_request(self.check_authorization)
 
     def process_authorizations_from_file(self, file: typing.Union[str, io.IOBase], *, encoding: str = None):
@@ -84,7 +90,9 @@ class FlaskJSONAuthorizer:
 
         for uri, data in authorizations.items():
             if isinstance(data, str):
-                username, password = parse_authorization_header(f'Basic {data}')
+                auth = parse_authorization_header(f'Basic {data}')
+                username = auth.username
+                password = auth.password
                 realm = None
 
             else:
@@ -101,31 +109,41 @@ class FlaskJSONAuthorizer:
     def add_protected_route(self, uri, username, password, *, realm: str = None):
         """Create a single protected route within the Flask app"""
 
-        realm = realm if realm is not None else self.default_realm
+        auth_data = {
+            'username': username,
+            'password': password,
+            'realm': realm if realm is not None else self.default_realm,
+        }
 
-        self._data.update({
-            uri: {
-                'username': username,
-                'password': password,
-                'realm': realm,
-            }
-        })
+        if '*' in uri:
+            auth_data.update({'pattern': re.compile(uri)})
+            self._regexes.update({uri: auth_data})
+
+        else:
+            self._simple.update({uri: auth_data})
+
+            if uri[:-1] != '/':
+                self._simple.update({f'{uri}/': auth_data})
 
     def check_authorization(self):
         """Before request handler to check the authorization header"""
 
-        if request.url_rule is None or request.url_rule.rule not in self._data:
+        if request.url_rule is None:
             # This means that the request didn't match any app routing rules, therefore, there is
             # nothing to return to a browser, and it won't need to have authorization.
             return
 
         data = None
-        if request.path in self._data:
-            data = self._data[request.path]
-        elif request.url_rule.rule in self._data:
-            data = self._data[request.url_rule.rule]
+        if request.path in self._simple:
+            data = self._simple[request.path]
+        elif request.url_rule.rule in self._simple:
+            data = self._simple[request.url_rule.rule]
 
-        # TODO: Figure out how to handle protected subfolders, etc, maybe via regex?
+        else:
+            for potential_data in self._regexes.values():
+                if potential_data['pattern'].search(request.path):
+                    data = potential_data
+                    break
 
         if data is None:
             # This means that we didn't have any protection rules setup for this route
