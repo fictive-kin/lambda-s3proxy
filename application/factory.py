@@ -60,6 +60,12 @@ def create_app(name, log_level=logging.WARN):
             else:
                 raise
 
+        # We don't want to let the authorizations file get viewed as it's a special file
+        @app.route(f"/{app.config['S3_AUTHORIZER_FILE']}")
+        def force_404():
+            raise abort(404)
+
+
     app.localizer = FlaskLocalizer(app)
 
     @app.errorhandler(404)
