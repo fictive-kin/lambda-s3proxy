@@ -8,7 +8,7 @@ import string
 
 import botocore
 from dynaconf import FlaskDynaconf
-from flask import Flask, abort, request, redirect
+from flask import Flask, abort, request, redirect, Response
 from flask_cors import CORS
 from slugify import slugify
 
@@ -49,17 +49,27 @@ def create_app(name, log_level=logging.WARN):
 
     @app.errorhandler(404)
     def page_not_found(error):
-        resp = app.s3_proxy.retrieve('404/index.html', abort_on_fail=False)
-        if not resp:
-            resp = app.s3_proxy.retrieve('404.html', abort_on_fail=False)
-        return resp, 404
+        try:
+            resp = app.s3_proxy.retrieve('404/index.html', abort_on_fail=False)
+            if not resp:
+                resp = app.s3_proxy.retrieve('404.html', abort_on_fail=False)
+                if not resp:
+                    raise Exception()  # This is just to prevent a 500 from occuring
+            return resp, 404
+        except Exception:  # pylint: disable=broad-except
+            return Response('Page Not Found', status=404, content_type='text/plain')
 
     @app.errorhandler(500)
     def server_error_page(error):
-        resp = app.s3_proxy.retrieve('500/index.html', abort_on_fail=False)
-        if not resp:
-            resp = app.s3_proxy.retrieve('500.html', abort_on_fail=False)
-        return resp, 500
+        try:
+            resp = app.s3_proxy.retrieve('500/index.html', abort_on_fail=False)
+            if not resp:
+                resp = app.s3_proxy.retrieve('500.html', abort_on_fail=False)
+                if not resp:
+                    raise Exception()  # This is just to prevent an true 500 from occuring
+            return resp, 500
+        except Exception:  # pylint: disable=broad-except
+            return Response('Internal Server Error', status=500, content_type='text/plain')
 
     def is_allowed_origin():
         if '*' not in app.config['ALLOWED_ORIGINS']:
