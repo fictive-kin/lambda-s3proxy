@@ -13,6 +13,7 @@ from flask_cors import CORS
 from slugify import slugify
 
 from application import stripe
+from application.authorizer import FlaskJSONAuthorizer
 from application.redirects import FlaskJSONRedirects
 from application.s3proxy import FlaskS3Proxy
 from application.localizer import FlaskLocalizer
@@ -37,7 +38,7 @@ def create_app(name, log_level=logging.WARN):
             app.redirects.init_app(app, file=redirects_obj['Body'])
         except botocore.exceptions.ClientError as exc:
             if exc.response['Error']['Code'] == 'NoSuchKey':
-                app.logger.critical(
+                app.logger.warning(
                     f"S3_REDIRECTS_FILE does not exist: {app.config['S3_REDIRECTS_FILE']}")
             else:
                 raise
@@ -45,6 +46,19 @@ def create_app(name, log_level=logging.WARN):
     # Due to the redirects possibly using these routes, we are adding these after having
     # instantiated all the redirects. If not for that, we could have used a config value
     app.s3_proxy.add_handled_routes(['/', '/<path:url>'], methods=['GET', 'POST'])
+
+    app.authorizer = FlaskJSONAuthorizer(app)
+
+    if app.config.get('S3_AUTHORIZER_FILE'):
+        try:
+            authorizer_obj = app.s3_proxy.get_file(app.config['S3_AUTHORIZER_FILE'])
+            app.authorizer.init_app(app, file=authorizer_obj['Body'])
+        except botocore.exceptions.ClientError as exc:
+            if exc.response['Error']['Code'] == 'NoSuchKey':
+                app.logger.warning(
+                    f"S3_AUTHORIZER_FILE does not exist: {app.config['S3_AUTHORIZER_FILE']}")
+            else:
+                raise
 
     app.localizer = FlaskLocalizer(app)
 

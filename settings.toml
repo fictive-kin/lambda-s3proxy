@@ -23,6 +23,7 @@ REDIRECTS_DEFAULT_STATUS_CODE = 302
 REDIRECTS_HANDLE_TRAILING_SLASH = true
 
 S3_REDIRECTS_FILE = 'redirects.json'
+S3_AUTHORIZER_FILE = 'authorizations.json'
 
 # Status code to use for redirects generated from FlaskS3Proxy
 S3PROXY_REDIRECT_CODE = 302
