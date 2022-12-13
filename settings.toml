@@ -24,6 +24,7 @@ REDIRECTS_HANDLE_TRAILING_SLASH = true
 
 S3_REDIRECTS_FILE = 'redirects.json'
 S3_AUTHORIZER_FILE = 'authorizations.json'
+S3_ELEVENTY_FILE = '11ty-serverless.json'
 
 # Status code to use for redirects generated from FlaskS3Proxy
 S3PROXY_REDIRECT_CODE = 302
@@ -39,3 +40,14 @@ S3PROXY_TRAILING_SLASH_REDIRECTION = true
 
 # Routes that you want handled by FlaskS3Proxy.
 # S3PROXY_ROUTES = ["/", "/<path:url>"]
+
+# To set a generic authentication, do so here, using a base64 encoded username:password
+#AUTHORIZER_ROUTES = {"/" = "<base64-user-pass>"}
+AUTHORIZER_PATHS_WITHOUT_AUTH = ["/static"]
+
+# Default CSP policy that we want in place
+CSP_DEFAULT_SRC = [
+    'https:',
+    'self'
+]
+CSP_UPGRADE_INSECURE_REQUESTS = true

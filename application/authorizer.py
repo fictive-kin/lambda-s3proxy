@@ -4,8 +4,7 @@ import json
 import re
 import typing
 
-from flask import Flask, Response, request
-from slugify import slugify
+from flask import Flask, Response, request, jsonify
 from werkzeug.http import parse_authorization_header
 
 from application.utils import random_string
@@ -63,7 +62,7 @@ class FlaskJSONAuthorizer:
             self.process_authorizations_from_file(file)
 
         if self.routes:
-            self.proces_authorizations(self.routes)
+            self.process_authorizations(self.routes)
 
         self.app.before_request(self.check_authorization)
 

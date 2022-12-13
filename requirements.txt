@@ -4,7 +4,9 @@ certifi
 dynaconf
 Flask<2.0
 flask-cors
+git+https://github.com/fictivekin/flask-csp.git#egg=flask-csp
 python-dateutil<2.7.0
+python-slugify
 pytz
 requests
 stripe

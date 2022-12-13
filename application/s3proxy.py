@@ -101,6 +101,8 @@ class FlaskS3Proxy:
         if url.endswith('/'):
             if self.trailing_slash_redirection:
                 return self.redirect_with_querystring(f'/{url[:-1]}')
+            else:
+                url = url[:-1]
 
         # Check for:
         # - /my-page
@@ -108,7 +110,7 @@ class FlaskS3Proxy:
         # - /my-page/index.html
         for possible in (url, f'{url}/index.html', f'{url}.html'):
             response = self.retrieve(possible, abort_on_fail=False)
-            if response and response.status_code == 200:
+            if response and getattr(response, 'status_code', None):
                 return response
 
         return abort(404)
