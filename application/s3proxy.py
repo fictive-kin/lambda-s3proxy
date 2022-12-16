@@ -12,9 +12,9 @@ from wsgiref.handlers import format_date_time
 
 
 # When working behind APIGateway, we have a hard limit of a 10 MB response payload and when
-# running in AWS Lambda, the hard limit is lowered to 6MB. We set it to 5MB so as to be sure
-# that no issues will arise
-OVERFLOW_SIZE = 5 * 1024 * 1024
+# running in AWS Lambda, the hard limit is lowered to 6MB. We set it to 4.7MB so as to be sure
+# that no issues will arise.
+OVERFLOW_SIZE = 4.7 * 1024 * 1024
 
 REDIRECT_CODE = 302
 
