@@ -5,10 +5,12 @@ dynaconf
 Flask<2.0
 flask-cors
 git+https://github.com/fictivekin/flask-csp.git#egg=flask-csp
+markupsafe==2.0.1
 python-dateutil<2.7.0
 python-slugify
 pytz
 requests
+sentry_sdk[flask]
 stripe
 tqdm
 Werkzeug<1.0
