@@ -73,6 +73,38 @@ class FlaskS3Proxy:
         # Add any configured paths to the handled routes
         self.add_handled_routes(self.routes)
 
+        @app.errorhandler(404)
+        def page_not_found(error):
+            return self.handle_404(error)
+
+        @app.errorhandler(500)
+        def server_error(error):
+            return self.handle_500(error)
+
+    def handle_404(self, error):
+        try:
+            resp = self.retrieve('404/index.html', abort_on_fail=False)
+            if not resp:
+                resp = self.retrieve('404.html', abort_on_fail=False)
+                if not resp:
+                    raise Exception()  # This is just to prevent a 500 from occuring
+            return resp, 404
+
+        except Exception:  # pylint: disable=broad-except
+            return Response('Page Not Found', status=404, content_type='text/plain')
+
+    def handle_500(self, error):
+        try:
+            resp = self.retrieve('500/index.html', abort_on_fail=False)
+            if not resp:
+                resp = self.retrieve('500.html', abort_on_fail=False)
+                if not resp:
+                    raise Exception()  # This is just to prevent a true 500 from occuring
+            return resp, 500
+
+        except Exception:  # pylint: disable=broad-except
+            return Response('Internal Server Error', status=500, content_type='text/plain')
+
     def add_handled_routes(self, paths, **kwargs):
         if not isinstance(paths, (list, set, tuple)):
             return

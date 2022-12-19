@@ -131,30 +131,6 @@ def create_app(name, log_level=logging.WARN):
     # instantiated all the redirects. If not for that, we could have used a config value
     app.s3_proxy.add_handled_routes(['/', '/<path:url>'], methods=['GET', 'POST'])
 
-    @app.errorhandler(404)
-    def page_not_found(error):
-        try:
-            resp = app.s3_proxy.retrieve('404/index.html', abort_on_fail=False)
-            if not resp:
-                resp = app.s3_proxy.retrieve('404.html', abort_on_fail=False)
-                if not resp:
-                    raise Exception()  # This is just to prevent a 500 from occuring
-            return resp, 404
-        except Exception:  # pylint: disable=broad-except
-            return Response('Page Not Found', status=404, content_type='text/plain')
-
-    @app.errorhandler(500)
-    def server_error_page(error):
-        try:
-            resp = app.s3_proxy.retrieve('500/index.html', abort_on_fail=False)
-            if not resp:
-                resp = app.s3_proxy.retrieve('500.html', abort_on_fail=False)
-                if not resp:
-                    raise Exception()  # This is just to prevent a true 500 from occuring
-            return resp, 500
-        except Exception:  # pylint: disable=broad-except
-            return Response('Internal Server Error', status=500, content_type='text/plain')
-
     def is_allowed_origin():
         if app.allowed_origins:
             origin = request.headers.get('Origin')
