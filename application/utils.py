@@ -34,8 +34,6 @@ def forced_relative_redirect(url, **kwargs):
         kwargs.update({'headers': {}})
 
     kwargs['headers'].update({'Location': url})
-    print(f'Redirecting to: {url}')
-    print(kwargs)
     resp = Response(
         body,
         **kwargs,
