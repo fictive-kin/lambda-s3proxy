@@ -6,7 +6,7 @@ import typing
 from flask import Flask, redirect
 from slugify import slugify
 
-from application.utils import random_string
+from application.utils import random_string, forced_relative_redirect
 
 REDIRECT_CODE = 302
 
@@ -126,8 +126,10 @@ class FlaskJSONRedirects:
         """Return the redirect function with the appropriate response for a Flask routing rule"""
 
         def redirect_func(**kwargs):
-            return redirect(
-                self._data[redirect_id].format(**kwargs),
-                code=status_code,
-            )
+            url = self._data[redirect_id].format(**kwargs)
+            if url.startswith('http:') or url.startswith('https:'):
+                return redirect(url, code=status_code)
+
+            return forced_relative_redirect(url, code=status_code)
+
         return redirect_func

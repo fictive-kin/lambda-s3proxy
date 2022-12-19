@@ -23,6 +23,7 @@ from application.authorizer import FlaskJSONAuthorizer
 from application.redirects import FlaskJSONRedirects
 from application.s3proxy import FlaskS3Proxy
 from application.localizer import FlaskLocalizer
+from application.utils import forced_relative_redirect
 
 
 def origins_list_to_regex(origins):
@@ -48,6 +49,7 @@ def origins_list_to_regex(origins):
 
 def create_app(name, log_level=logging.WARN):
     app = Flask(name, static_folder=None)
+    app.url_map.strict_slashes = False
 
     FlaskDynaconf(app)
 
@@ -169,6 +171,12 @@ def create_app(name, log_level=logging.WARN):
                 return False
 
         return True
+
+    @app.before_request
+    def clear_trailing():
+        rp = request.path
+        if rp != '/' and rp.endswith('/'):
+            return forced_relative_redirect(rp[:-1], code=302)
 
     @app.before_request
     def chk_shortcircuit():

@@ -10,11 +10,13 @@ import pytz
 from slugify import slugify
 from wsgiref.handlers import format_date_time
 
+from application.utils import forced_relative_redirect
+
 
 # When working behind APIGateway, we have a hard limit of a 10 MB response payload and when
-# running in AWS Lambda, the hard limit is lowered to 6MB. We set it to 4.7MB so as to be sure
+# running in AWS Lambda, the hard limit is lowered to 6MB. We set it to 4.5MB so as to be sure
 # that no issues will arise.
-OVERFLOW_SIZE = 4.7 * 1024 * 1024
+OVERFLOW_SIZE = 4.5 * 1024 * 1024
 
 REDIRECT_CODE = 302
 
@@ -118,7 +120,7 @@ class FlaskS3Proxy:
     def redirect_with_querystring(self, target):
         if request.query_string:
             target = f"{target}?{request.query_string.decode('utf-8')}"
-        return redirect(target, code=self.redirect_code)
+        return forced_relative_redirect(target, code=self.redirect_code)
 
     def datetime_to_header(self, dt):
         return format_date_time(time.mktime(dt.replace(tzinfo=pytz.UTC).timetuple()))
