@@ -3,7 +3,8 @@
 import random
 import string
 
-from flask import Response
+import botocore
+from flask import Response, abort
 
 
 def str2bool(s):
@@ -40,3 +41,27 @@ def forced_relative_redirect(url, **kwargs):
     )
     resp.autocorrect_location_header = False
     return resp
+
+
+def force_404():
+    return abort(404)
+
+
+def init_extension(app, extension, filename_key):
+    # Specifically not passing app to the initial init, since we'll don't want to double run it
+    ext = extension()
+    if app.config.get(filename_key):
+        try:
+            config_obj = app.s3_proxy.get_file(app.config[filename_key])
+            ext.init_app(app, file=config_obj['Body'])
+        except botocore.exceptions.ClientError as exc:
+            if exc.response['Error']['Code'] == 'NoSuchKey':
+                app.logger.warning(
+                    f"{filename_key} does not exist: {app.config[filename_key]}")
+            else:
+                raise
+
+        # We don't want to let the config file get viewed as it's a special file
+        app.add_url_rule(f"/{app.config[filename_key]}", f'{filename_key}-file-block', force_404)
+
+    return ext

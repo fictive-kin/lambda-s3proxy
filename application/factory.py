@@ -23,7 +23,7 @@ from application.authorizer import FlaskJSONAuthorizer
 from application.redirects import FlaskJSONRedirects
 from application.s3proxy import FlaskS3Proxy
 from application.localizer import FlaskLocalizer
-from application.utils import forced_relative_redirect
+from application.utils import forced_relative_redirect, init_extension
 
 
 def origins_list_to_regex(origins):
@@ -74,58 +74,11 @@ def create_app(name, log_level=logging.WARN):
     CSP(app)
 
     app.s3_proxy = FlaskS3Proxy(app)
-    app.redirects = FlaskJSONRedirects()
-
-    def force_404():
-        raise abort(404)
-
-    if app.config.get('S3_REDIRECTS_FILE'):
-        try:
-            redirects_obj = app.s3_proxy.get_file(app.config['S3_REDIRECTS_FILE'])
-            app.redirects.init_app(app, file=redirects_obj['Body'])
-        except botocore.exceptions.ClientError as exc:
-            if exc.response['Error']['Code'] == 'NoSuchKey':
-                app.logger.warning(
-                    f"S3_REDIRECTS_FILE does not exist: {app.config['S3_REDIRECTS_FILE']}")
-            else:
-                raise
-
-        # We don't want to let the redirects file get viewed as it's a special file
-        app.add_url_rule(f"/{app.config['S3_REDIRECTS_FILE']}", 'redirects-file-block', force_404)
-
-    app.eleventy = Flask11tyServerless()
-
-    if app.config.get('S3_ELEVENTY_FILE'):
-        try:
-            eleventy_obj = app.s3_proxy.get_file(app.config['S3_ELEVENTY_FILE'])
-            app.eleventy.init_app(app, file=eleventy_obj['Body'])
-        except botocore.exceptions.ClientError as exc:
-            if exc.response['Error']['Code'] == 'NoSuchKey':
-                app.logger.warning(
-                    f"S3_ELEVENTY_FILE does not exist: {app.config['S3_ELEVENTY_FILE']}")
-            else:
-                raise
-
-        # We don't want to let the 11ty file get viewed as it's a special file
-        app.add_url_rule(f"/{app.config['S3_ELEVENTY_FILE']}", 'eleventy-file-block', force_404)
-
-    app.authorizer = FlaskJSONAuthorizer(app)
-
-    if app.config.get('S3_AUTHORIZER_FILE'):
-        try:
-            authorizer_obj = app.s3_proxy.get_file(app.config['S3_AUTHORIZER_FILE'])
-            app.authorizer.init_app(app, file=authorizer_obj['Body'])
-        except botocore.exceptions.ClientError as exc:
-            if exc.response['Error']['Code'] == 'NoSuchKey':
-                app.logger.warning(
-                    f"S3_AUTHORIZER_FILE does not exist: {app.config['S3_AUTHORIZER_FILE']}")
-            else:
-                raise
-
-        # We don't want to let the authorizations file get viewed as it's a special file
-        app.add_url_rule(f"/{app.config['S3_AUTHORIZER_FILE']}", 'authorizer-file-block', force_404)
-
     app.localizer = FlaskLocalizer(app)
+
+    app.authorizer = init_extension(app, FlaskJSONAuthorizer, 'S3_AUTHORIZER_FILE')
+    app.eleventy = init_extension(app, Flask11tyServerless, 'S3_ELEVENTY_FILE')
+    app.redirects = init_extension(app, FlaskJSONRedirects, 'S3_REDIRECTS_FILE')
 
     # Due to the redirects possibly using these routes, we are adding these after having
     # instantiated all the redirects. If not for that, we could have used a config value
