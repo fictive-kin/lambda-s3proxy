@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from urllib.parse import unquote
+
 from flask import Flask, Blueprint, request, jsonify
 from flask_cors import cross_origin
 
@@ -45,6 +47,31 @@ class FlaskLocalizer:
 
             for header, value in request.headers:
                 if header.lower() in desired_headers:
-                    returnable.update({desired_headers[header.lower()]: value})
+                    try:
+                        return_value = unquote(value)
+
+                    except TypeError as exc:
+                        self.app.logger.exception(exc)
+                        return_value = value
+
+                    returnable.update({
+                        desired_headers[header.lower()]: return_value
+                    })
+
+            if not returnable:
+                # When we're not running behind CloudFront, we want valid data,
+                # but want to be able to tell easily that it's inaccurate.
+                returnable = {
+                    'country_code': 'N/A',
+                    'city': 'Point Nemo',
+                    'country_name': 'N/A',
+                    'region_code': 'N/A',
+                    'region_name': 'Pacific Ocean',
+                    'latitude': '-48.8767',
+                    'longitude': '-123.3933',
+                    'metro-code': 'N/A',
+                    'postal_code': 'N/A',
+                    'timezone': 'Etc/GMT-9',
+                }
 
             return jsonify(returnable)
