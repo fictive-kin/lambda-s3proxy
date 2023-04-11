@@ -8,7 +8,6 @@ from botocore.exceptions import ClientError
 from flask import Flask, abort, Response, redirect, request
 import pytz
 from slugify import slugify
-from wsgiref.handlers import format_date_time
 
 from application.utils import forced_relative_redirect
 
@@ -19,6 +18,7 @@ from application.utils import forced_relative_redirect
 OVERFLOW_SIZE = 4.5 * 1024 * 1024
 
 REDIRECT_CODE = 302
+HTTP_HEADER_DATE_FORMAT = '%a, %d %b %Y %H:%M:%S GMT'
 
 S3PROXY_OPTIONS = [
     "BUCKET",
@@ -155,7 +155,10 @@ class FlaskS3Proxy:
         return forced_relative_redirect(target, code=self.redirect_code)
 
     def datetime_to_header(self, dt):
-        return format_date_time(time.mktime(dt.replace(tzinfo=pytz.UTC).timetuple()))
+        return time.strftime(
+            HTTP_HEADER_DATE_FORMAT,
+            dt.replace(tzinfo=pytz.UTC).timetuple(),
+        )
 
 
     def get_file(self, key):
