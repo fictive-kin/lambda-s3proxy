@@ -48,6 +48,7 @@ AUTHORIZER_PATHS_WITHOUT_AUTH = ["/static"]
 # Default CSP policy that we want in place
 CSP_DEFAULT_SRC = [
     'https:',
+    'unsafe-inline',
     'self'
 ]
 CSP_UPGRADE_INSECURE_REQUESTS = true
