@@ -1,8 +1,11 @@
 
 import json
+import logging
 import os
 
 import sentry_sdk
+from sentry_sdk.integrations.boto3 import Boto3Integration
+from sentry_sdk.integrations.flask import FlaskIntegration
 
 
 def setup_sentry(dsn=None, **kwargs):
@@ -17,11 +20,36 @@ def setup_sentry(dsn=None, **kwargs):
             sentry_sdk.transport.HttpTransport if kwargs.get('debug') is not True else print
         )
 
+    if 'traces_sample_rate' not in kwargs:
+        # 0 = no sampling, 1 = 100% sampling
+        kwargs['traces_sample_rate'] = 0.1  # default is 10% of requests
+
+    if 'request_bodies' not in kwargs:
+        kwargs['request_bodies'] = "always"
+
+    if 'integrations' not in kwargs or not kwargs['integrations']:
+        kwargs['integrations'] = []
+    elif not isinstance(kwargs['integrations'], list):
+        kwargs['integrations'] = [kwargs['integrations']]
+
+    add_boto3_int = True
+    add_flask_int = True
+    for integration in kwargs['integrations']:
+        if isinstance(integration, Boto3Integration):
+            add_boto3_int = False
+        elif isinstance(integration, FlaskIntegration):
+            add_flask_int = False
+
+    if add_boto3_int:
+        kwargs['integrations'].append(Boto3Integration())
+    if add_flask_int:
+        kwargs['integrations'].append(FlaskIntegration())
+
     if kwargs['dsn']:
         sentry_sdk.init(**kwargs)
 
     else:
-        print("[WARNING] Cannot setup Sentry. No DSN found")
+        logging.warning("Cannot setup Sentry. No DSN found")
 
 
 def zappa_handler(e, event, context):
