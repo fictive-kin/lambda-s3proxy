@@ -4,9 +4,10 @@ import json
 import typing
 
 from flask import Flask, redirect
+from sentry_sdk import capture_exception
 from slugify import slugify
 
-from application.utils import random_string, forced_relative_redirect
+from application.utils import random_string, forced_host_redirect
 
 REDIRECT_CODE = 302
 
@@ -75,26 +76,32 @@ class FlaskJSONRedirects:
 
         except (IOError, json.JSONDecodeError) as exc:
             self.app.logger.exception(exc)
+            capture_exception(exc)
 
     def process_redirects(self, redirects: typing.Dict):
         """Process a dict of redirects to create them within Flask"""
 
         for uri, data in redirects.items():
-            if isinstance(data, str):
-                target = data
-                handle_trailing_slash = None
-                status_code = None
+            try:
+                if isinstance(data, str):
+                    target = data
+                    handle_trailing_slash = None
+                    status_code = None
 
-            else:
-                target = data['target']
-                handle_trailing_slash = data.get('trailing_slash', None)
-                status_code = data.get('status', None)
+                else:
+                    target = data['target']
+                    handle_trailing_slash = data.get('trailing_slash', None)
+                    status_code = data.get('status', None)
 
-            self.create_redirect(
-                uri,
-                target,
-                handle_trailing_slash=handle_trailing_slash,
-                status_code=status_code)
+                self.create_redirect(
+                    uri,
+                    target,
+                    handle_trailing_slash=handle_trailing_slash,
+                    status_code=status_code)
+
+            except Exception as exc:
+                self.app.logger.exception(exc)
+                capture_exception(exc)
 
     def create_redirect(self, uri, target, *,
                         handle_trailing_slash: bool = None,
@@ -130,6 +137,6 @@ class FlaskJSONRedirects:
             if url.startswith('http:') or url.startswith('https:'):
                 return redirect(url, code=status_code)
 
-            return forced_relative_redirect(url, code=status_code)
+            return forced_host_redirect(url, code=status_code)
 
         return redirect_func
