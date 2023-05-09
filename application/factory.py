@@ -6,6 +6,7 @@ import logging
 import random
 import re
 import string
+import time
 
 import botocore
 from dynaconf import FlaskDynaconf
@@ -62,11 +63,12 @@ def create_app(name, log_level=logging.WARN):
         except Exception as exc:
             logging.exception(exc)
 
-            if tries >= 10:
+            if tries >= 5:
                 logging.critical('Number of allowed app instantiation retries has been exceeded.')
                 raise exc
 
             app = None
+            time.sleep(2)  # wait 2 secs before retrying in case it was a transient network error
 
     return app
 
@@ -80,14 +82,14 @@ def _create_app(name, log_level=logging.WARN):
     app.logger.setLevel(log_level)
     app.logger.propagate = True
 
-    if app.config["ENV"].lower() not in ("development", "testing"):
+    if app.config["ENV_FOR_DYNACONF"].lower() not in ("development", "testing"):
         setup_sentry(
             app.config.get("SENTRY_DSN"),
             debug=app.debug,
             integrations=[
                 FlaskIntegration(),
             ],
-            environment=app.config["ENV"],
+            environment=app.config["ENV_FOR_DYNACONF"],
             request_bodies="always",
         )
 

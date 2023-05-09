@@ -21,7 +21,7 @@ def random_string(length=5):  # pylint: disable=no-self-use
 
 
 def forced_host_redirect(url, **kwargs):
-    if not url.startswith('http') and current_app.config.DOMAIN_NAME:
+    if not url.startswith('http') and current_app.config.get('DOMAIN_NAME'):
         url = f'https://{current_app.config.DOMAIN_NAME}{url}'
 
     return _redirect(url, **kwargs)
