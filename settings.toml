@@ -41,14 +41,19 @@ S3PROXY_TRAILING_SLASH_REDIRECTION = true
 # Routes that you want handled by FlaskS3Proxy.
 # S3PROXY_ROUTES = ["/", "/<path:url>"]
 
+# Locales that are handled by S3Proxy localization. These correspond to path prefixes in
+# the S3 bucket.
+# S3PROXY_LOCALES = ["de", "fr", "it", "es"]
+
 # To set a generic authentication, do so here, using a base64 encoded username:password
 #AUTHORIZER_ROUTES = {"/" = "<base64-user-pass>"}
 AUTHORIZER_PATHS_WITHOUT_AUTH = ["/static"]
 
 # Default CSP policy that we want in place
 CSP_DEFAULT_SRC = [
-    'https:',
-    'unsafe-inline',
-    'self'
+    "data:",
+    "https:",
+    "self",
+    "unsafe-inline"
 ]
 CSP_UPGRADE_INSECURE_REQUESTS = true

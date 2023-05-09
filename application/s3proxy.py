@@ -5,7 +5,7 @@ import time
 
 import boto3
 from botocore.exceptions import ClientError
-from flask import Flask, abort, Response, redirect, request
+from flask import Flask, abort, Blueprint, Response, redirect, request
 import pytz
 from slugify import slugify
 
@@ -26,6 +26,7 @@ S3PROXY_OPTIONS = [
     "TRAILING_SLASH_REDIRECTION",
     "REDIRECT_CODE",
     "ROUTES",
+    "LOCALES",
 ]
 
 
@@ -38,29 +39,39 @@ class FlaskS3Proxy:
     redirect_code: int = REDIRECT_CODE
     routes: list = None
 
-    def __init__(self, app, boto3_client=None, bucket=None, prefix=None, paths=None):
+    def __init__(self, app, boto3_client=None, bucket=None, prefix=None, paths=None, **kwargs):
         if boto3_client is None:
             self._client = boto3.client('s3')
         else:
             self._client = boto3_client
 
-        if app:
-            self.init_app(app, paths=paths)
+        if bucket is not None:
+            self.bucket = bucket
+        if prefix is not None:
+            self.prefix = prefix
 
-    def init_app(self, app, paths=None):
-        self.app = app
+        if app:
+            self.init_app(app, paths=paths, **kwargs)
+
+    def set_options(self, bucket=None, prefix=None):
+        if bucket is not None:
+            self.bucket = bucket
+        if prefix is not None:
+            self.prefix = prefix
 
         option_prefix = 'S3PROXY_'
         for key in S3PROXY_OPTIONS:
-            setattr(self, key.lower(), app.config.get(f'{option_prefix}{key}'))
-
-        if not self.bucket:
-            self.app.logger.warning(
-                'S3 Bucket has not been provided. Cannot proceed with FlaskS3Proxy setup.')
-            return
+            if self.app.config.get(f'{option_prefix}{key}'):
+                setattr(self, key.lower(), self.app.config.get(f'{option_prefix}{key}'))
 
         self.redirect_code = int(self.redirect_code) if self.redirect_code else REDIRECT_CODE
         self.trailing_slash_redirection = bool(self.trailing_slash_redirection)
+
+        try:
+            if self.prefix.startswith('/'):
+                self.prefix = self.prefix[1:]
+        except Exception:  # pylint: disable=broad-except
+            pass
 
         try:
             if self.prefix.endswith('/'):
@@ -68,18 +79,30 @@ class FlaskS3Proxy:
         except Exception:  # pylint: disable=broad-except
             pass
 
-        # Add any passed paths to the handled routes
-        self.add_handled_routes(paths)
-        # Add any configured paths to the handled routes
-        self.add_handled_routes(self.routes)
+    def init_app(self, app, bucket=None, prefix=None, paths=None, **kwargs):
+        self.app = app
+        self.set_options(bucket=bucket, prefix=prefix)
 
-        @app.errorhandler(404)
+        if not self.bucket:
+            self.app.logger.warning(
+                'S3 Bucket has not been provided. Cannot proceed with FlaskS3Proxy setup.')
+            return
+
+        # Add any passed paths to the handled routes
+        self.add_handled_routes(paths, **kwargs)
+        # Add any configured paths to the handled routes
+        self.add_handled_routes(self.routes, **kwargs)
+
+        @self.app.errorhandler(404)
         def page_not_found(error):
             return self.handle_404(error)
 
-        @app.errorhandler(500)
+        @self.app.errorhandler(500)
         def server_error(error):
             return self.handle_500(error)
+
+        if self.locales:
+            self.setup_locales()
 
     def handle_404(self, error):
         try:
@@ -88,7 +111,8 @@ class FlaskS3Proxy:
                 resp = self.retrieve('404.html', abort_on_fail=False)
                 if not resp:
                     raise Exception()  # This is just to prevent a 500 from occuring
-            return resp, 404
+            resp.status = 404
+            return resp
 
         except Exception:  # pylint: disable=broad-except
             return Response('Page Not Found', status=404, content_type='text/plain')
@@ -100,13 +124,14 @@ class FlaskS3Proxy:
                 resp = self.retrieve('500.html', abort_on_fail=False)
                 if not resp:
                     raise Exception()  # This is just to prevent a true 500 from occuring
-            return resp, 500
+            resp.status = 500
+            return resp
 
         except Exception:  # pylint: disable=broad-except
             return Response('Internal Server Error', status=500, content_type='text/plain')
 
     def add_handled_routes(self, paths, **kwargs):
-        if not isinstance(paths, (list, set, tuple)):
+        if not isinstance(paths, (list, set, tuple,)):
             return
 
         def path_to_check(path):
@@ -206,3 +231,87 @@ class FlaskS3Proxy:
             return abort(404)
 
         return None
+
+    def setup_locales(self):
+        if isinstance(self.locales, str):
+            try:
+                self.locales = json.loads(self.locales)
+            except json.JSONDecodeError:
+                pass
+
+            # In case it loaded to a new string, we want it as a list
+            if isinstance(self.locales, str):
+                self.locales = [self.locales]
+
+        for locale in self.locales:
+            name = f's3_proxy_{locale}'
+            print(f'Instantiating {name}')
+            locale_specific_proxy = FlaskS3ProxyBlueprint(
+                self.app,
+                prefix=f'/{locale}',
+                paths=[f'/{locale}/', f'/{locale}/<path:url>'],
+                fallback=self,
+                methods=['GET', 'POST'],
+            )
+            setattr(self.app, name, locale_specific_proxy)
+
+
+class FlaskS3ProxyBlueprint(FlaskS3Proxy):
+    bp: Blueprint = None
+    fallback: FlaskS3Proxy = None
+
+    def __init__(self, app, boto3_client=None, bucket=None, prefix=None, paths=None, fallback=None, **kwargs):
+        # Intentionally not providing app to parent init
+        super().__init__(None, boto3_client=boto3_client, bucket=bucket, prefix=prefix)
+
+        self.app = app
+
+        name = 's3proxy'
+        if self.prefix:
+            name += f'-{slugify(self.prefix)}'
+        self.bp = Blueprint(name, __name__)
+
+        if fallback:
+            self.fallback = fallback
+
+        if paths:
+            self.register_blueprint(paths, **kwargs)
+
+    def register_blueprint(self, paths, bucket=None, prefix=None, **kwargs):
+        self.set_options(bucket=bucket, prefix=prefix)
+
+        if not self.bucket:
+            self.app.logger.warning(
+                'S3 Bucket has not been provided. Cannot proceed with FlaskS3ProxyBlueprint setup.')
+            return
+
+        # Add any passed paths to the handled routes
+        self.add_handled_routes(paths, **kwargs)
+
+        @self.bp.errorhandler(404)
+        def page_not_found(error):
+            return self.handle_404(error)
+
+        @self.bp.errorhandler(500)
+        def server_error(error):
+            return self.handle_500(error)
+
+        self.app.register_blueprint(self.bp)
+
+    def add_handled_route(self, path, **kwargs):
+        slug = slugify(path)
+        self.bp.add_url_rule(path, endpoint=slug, view_func=self.proxy_it, **kwargs)
+
+    def handle_404(self, error):
+        resp = super().handle_404(error)
+        if resp.content_type == 'text/plain' and self.fallback:
+            return self.fallback.handle_404(error)
+
+        return resp
+
+    def handle_500(self, error):
+        resp = super().handle_500(error)
+        if resp.content_type == 'text/plain' and self.fallback:
+            return self.fallback.handle_500(error)
+
+        return resp
