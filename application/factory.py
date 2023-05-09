@@ -22,7 +22,7 @@ from application.eleventy import Flask11tyServerless, LambdaMessageEncoder
 from application.authorizer import FlaskJSONAuthorizer
 from application.redirects import FlaskJSONRedirects
 from application.s3proxy import FlaskS3Proxy
-from application.localizer import FlaskLocalizer
+from application.geography import FlaskGeography
 from application.utils import forced_host_redirect, init_extension
 
 
@@ -98,7 +98,7 @@ def _create_app(name, log_level=logging.WARN):
     CSP(app)
 
     app.s3_proxy = FlaskS3Proxy(app)
-    app.localizer = FlaskLocalizer(app)
+    app.geography = FlaskGeography(app)
 
     app.authorizer = init_extension(app, FlaskJSONAuthorizer, 'S3_AUTHORIZER_FILE')
     app.eleventy = init_extension(app, Flask11tyServerless, 'S3_ELEVENTY_FILE')

@@ -6,12 +6,12 @@ from flask import Flask, Blueprint, request, jsonify
 from flask_cors import cross_origin
 
 
-LOCALIZER_OPTIONS = [
+GEOGRAPHY_OPTIONS = [
     "ROUTE",
 ]
 
 
-class FlaskLocalizer:
+class FlaskGeography:
 
     def __init__(self, app: Flask = None, *, route: str = None):
         if app:
@@ -21,15 +21,15 @@ class FlaskLocalizer:
         self.app = app
 
         if route is None:
-            if app.config.get('LOCALIZER_ROUTE'):
-                route = app.config['LOCALIZER_ROUTE']
+            if app.config.get('GEOGRAPHY_ROUTE'):
+                route = app.config['GEOGRAPHY_ROUTE']
             else:
-                self.app.logger.warning('Cannot instantiate FlaskLocalizer without a route defined')
+                self.app.logger.warning('Cannot instantiate FlaskGeography without a route defined')
                 return
 
         @self.app.route(route)
         @cross_origin(origins=['*'], methods=['GET', 'OPTIONS'])
-        def localizer():
+        def geography():
             desired_headers = {
                 'cloudfront-viewer-country': 'country_code',
                 'cloudfront-viewer-city': 'city',
