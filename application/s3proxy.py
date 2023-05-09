@@ -9,7 +9,7 @@ from flask import Flask, abort, Response, redirect, request
 import pytz
 from slugify import slugify
 
-from application.utils import forced_relative_redirect
+from application.utils import forced_host_redirect
 
 
 # When working behind APIGateway, we have a hard limit of a 10 MB response payload and when
@@ -152,7 +152,7 @@ class FlaskS3Proxy:
     def redirect_with_querystring(self, target):
         if request.query_string:
             target = f"{target}?{request.query_string.decode('utf-8')}"
-        return forced_relative_redirect(target, code=self.redirect_code)
+        return forced_host_redirect(target, code=self.redirect_code)
 
     def datetime_to_header(self, dt):
         return time.strftime(

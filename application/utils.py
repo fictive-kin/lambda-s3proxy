@@ -4,7 +4,7 @@ import random
 import string
 
 import botocore
-from flask import Response, abort
+from flask import Response, abort, current_app
 
 
 def str2bool(s):
@@ -20,7 +20,20 @@ def random_string(length=5):  # pylint: disable=no-self-use
                                      string.digits) for _ in range(length))
 
 
+def forced_host_redirect(url, **kwargs):
+    if not url.startswith('http') and current_app.config.DOMAIN_NAME:
+        url = f'https://{current_app.config.DOMAIN_NAME}{url}'
+
+    return _redirect(url, **kwargs)
+
+
 def forced_relative_redirect(url, **kwargs):
+    resp = _redirect(url, **kwargs)
+    resp.autocorrect_location_header = False
+    return resp
+
+
+def _redirect(url, **kwargs):
     body = f"""
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
 <title>Redirecting...</title>
@@ -39,7 +52,6 @@ def forced_relative_redirect(url, **kwargs):
         body,
         **kwargs,
     )
-    resp.autocorrect_location_header = False
     return resp
 
 

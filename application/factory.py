@@ -23,14 +23,18 @@ from application.authorizer import FlaskJSONAuthorizer
 from application.redirects import FlaskJSONRedirects
 from application.s3proxy import FlaskS3Proxy
 from application.localizer import FlaskLocalizer
-from application.utils import forced_relative_redirect, init_extension
+from application.utils import forced_host_redirect, init_extension
 
 
-def origins_list_to_regex(origins):
+def origins_list_to_regex(app, origins):
     logging.info(f'Original origins list: {origins}')
     if not isinstance(origins, (list, set, tuple,)):
         if isinstance(origins, str) and origins.startswith('[') and origins.endswith(']'):
-            origins = json.loads(origins)
+            try:
+                origins = json.loads(origins)
+            except json.JSONDecodeError as exc:
+                app.logger.exception(exc)
+                origins = ['.*']
         else:
             origins = [origins]
 
@@ -48,6 +52,26 @@ def origins_list_to_regex(origins):
 
 
 def create_app(name, log_level=logging.WARN):
+
+    tries = 0
+    app = None
+    while app is None:
+        tries += 1
+        try:
+            app = _create_app(name, log_level)
+        except Exception as exc:
+            logging.exception(exc)
+
+            if tries >= 10:
+                logging.critical('Number of allowed app instantiation retries has been exceeded.')
+                raise exc
+
+            app = None
+
+    return app
+
+
+def _create_app(name, log_level=logging.WARN):
     app = Flask(name, static_folder=None)
     app.url_map.strict_slashes = False
 
@@ -69,7 +93,7 @@ def create_app(name, log_level=logging.WARN):
 
     stripe.init_app(app)
 
-    app.allowed_origins = origins_list_to_regex(app.config.get('ALLOWED_ORIGINS', ['.*']))
+    app.allowed_origins = origins_list_to_regex(app, app.config.get('ALLOWED_ORIGINS', ['.*']))
     CORS(app, origins=app.allowed_origins, supports_credentials=True)
     CSP(app)
 
@@ -105,7 +129,7 @@ def create_app(name, log_level=logging.WARN):
     def clear_trailing():
         rp = request.path
         if rp != '/' and rp.endswith('/'):
-            return forced_relative_redirect(rp[:-1], code=302)
+            return forced_host_redirect(rp[:-1], code=302)
 
     @app.before_request
     def chk_shortcircuit():
