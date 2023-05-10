@@ -38,6 +38,7 @@ class FlaskS3Proxy:
     trailing_slash_redirection: bool = True
     redirect_code: int = REDIRECT_CODE
     routes: list = None
+    locales: list = None
 
     def __init__(self, app, *, boto3_client=None, bucket=None, prefix=None, paths=None, **kwargs):
         if boto3_client is None:
@@ -45,6 +46,7 @@ class FlaskS3Proxy:
         else:
             self._client = boto3_client
 
+        self.locales = []
         if bucket is not None:
             self.bucket = bucket
         if prefix is not None:
@@ -239,7 +241,7 @@ class FlaskS3Proxy:
                 self.locales = json.loads(locales_file_obj['Body'].read())
                 self.app.logger.info('Loaded locales from S3')
 
-            except botocore.exceptions.ClientError as exc:
+            except ClientError as exc:
                 self.app.logger.exception(exc)
                 if exc.response['Error']['Code'] == 'NoSuchKey':
                     self.app.logger.warning(
@@ -262,7 +264,7 @@ class FlaskS3Proxy:
                 self.locales = [self.locales]
 
         if locales is not None:
-            self.locales = self.locales + locales
+            self.locales = (self.locales + locales) if self.locales else locales
 
         if self.locales:
             # Use a set to ensure that we only have 1 of each locale
