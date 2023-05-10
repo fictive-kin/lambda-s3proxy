@@ -39,7 +39,7 @@ class FlaskS3Proxy:
     redirect_code: int = REDIRECT_CODE
     routes: list = None
 
-    def __init__(self, app, boto3_client=None, bucket=None, prefix=None, paths=None, **kwargs):
+    def __init__(self, app, *, boto3_client=None, bucket=None, prefix=None, paths=None, **kwargs):
         if boto3_client is None:
             self._client = boto3.client('s3')
         else:
@@ -53,7 +53,7 @@ class FlaskS3Proxy:
         if app:
             self.init_app(app, paths=paths, **kwargs)
 
-    def set_options(self, bucket=None, prefix=None):
+    def set_options(self, *, bucket=None, prefix=None):
         if bucket is not None:
             self.bucket = bucket
         if prefix is not None:
@@ -79,7 +79,7 @@ class FlaskS3Proxy:
         except Exception:  # pylint: disable=broad-except
             pass
 
-    def init_app(self, app, bucket=None, prefix=None, paths=None, **kwargs):
+    def init_app(self, app, *, bucket=None, prefix=None, paths=None, **kwargs):
         self.app = app
         self.set_options(bucket=bucket, prefix=prefix)
 
@@ -189,7 +189,7 @@ class FlaskS3Proxy:
         return self._client.get_object(Bucket=self.bucket, Key=key)
 
 
-    def retrieve(self, url, abort_on_fail=True):
+    def retrieve(self, url, *, abort_on_fail=True):
         s3_url = f'{self.prefix}/{url}' if self.prefix else url
 
         try:
@@ -231,7 +231,7 @@ class FlaskS3Proxy:
 
         return None
 
-    def setup_locales(self, file=None, locales=None):
+    def setup_locales(self, *, file=None, locales=None):
 
         if file is not None:
             try:
@@ -283,7 +283,7 @@ class FlaskS3ProxyBlueprint(FlaskS3Proxy):
     bp: Blueprint = None
     fallback: FlaskS3Proxy = None
 
-    def __init__(self, app, boto3_client=None, bucket=None, prefix=None, paths=None, fallback=None, **kwargs):
+    def __init__(self, app, *, boto3_client=None, bucket=None, prefix=None, paths=None, fallback=None, **kwargs):
         # Intentionally not providing app to parent init
         super().__init__(None, boto3_client=boto3_client, bucket=bucket, prefix=prefix)
 
@@ -300,7 +300,7 @@ class FlaskS3ProxyBlueprint(FlaskS3Proxy):
         if paths:
             self.register_blueprint(paths, **kwargs)
 
-    def register_blueprint(self, paths, bucket=None, prefix=None, **kwargs):
+    def register_blueprint(self, paths, *, bucket=None, prefix=None, **kwargs):
         self.set_options(bucket=bucket, prefix=prefix)
 
         if not self.bucket:
