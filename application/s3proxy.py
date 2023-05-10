@@ -101,9 +101,6 @@ class FlaskS3Proxy:
         def server_error(error):
             return self.handle_500(error)
 
-        if self.locales:
-            self.setup_locales()
-
     def handle_404(self, error):
         try:
             resp = self.retrieve('404/index.html', abort_on_fail=False)
@@ -151,6 +148,8 @@ class FlaskS3Proxy:
 
     def add_handled_route(self, path, **kwargs):
         slug = slugify(path)
+        if not slug:
+            slug = 'index'
         self.app.add_url_rule(path, endpoint=slug, view_func=self.proxy_it, **kwargs)
 
     def proxy_it(self, url=None):
@@ -232,8 +231,27 @@ class FlaskS3Proxy:
 
         return None
 
-    def setup_locales(self):
+    def setup_locales(self, file=None, locales=None):
+
+        if file is not None:
+            try:
+                locales_file_obj = self.get_file(file)
+                self.locales = json.loads(locales_file_obj['Body'].read())
+                self.app.logger.info('Loaded locales from S3')
+
+            except botocore.exceptions.ClientError as exc:
+                self.app.logger.exception(exc)
+                if exc.response['Error']['Code'] == 'NoSuchKey':
+                    self.app.logger.warning(
+                        f"Unable to instantiate multi-locales: {file} does not exist in S3")
+                else:
+                    raise
+
+            except json.JSONDecodeError as exc:
+                self.app.logger.exception(exc)
+
         if isinstance(self.locales, str):
+            # Attempt to JSON decode the value, since it might have been a JSON string in an env var
             try:
                 self.locales = json.loads(self.locales)
             except json.JSONDecodeError:
@@ -243,17 +261,22 @@ class FlaskS3Proxy:
             if isinstance(self.locales, str):
                 self.locales = [self.locales]
 
-        for locale in self.locales:
-            name = f's3_proxy_{locale}'
-            print(f'Instantiating {name}')
-            locale_specific_proxy = FlaskS3ProxyBlueprint(
-                self.app,
-                prefix=f'/{locale}',
-                paths=[f'/{locale}/', f'/{locale}/<path:url>'],
-                fallback=self,
-                methods=['GET', 'POST'],
-            )
-            setattr(self.app, name, locale_specific_proxy)
+        if locales is not None:
+            self.locales = self.locales + locales
+
+        if self.locales:
+            # Use a set to ensure that we only have 1 of each locale
+            for locale in set(self.locales):
+                self.app.logger.info(f'Instantiating locale-specific blueprint for {locale}')
+
+                locale_specific_proxy = FlaskS3ProxyBlueprint(
+                    self.app,
+                    prefix=f'/{locale}',
+                    paths=[f'/{locale}/', f'/{locale}/<path:url>'],
+                    fallback=self,
+                    methods=['GET', 'POST'],
+                )
+                setattr(self.app, f's3_proxy_{locale}', locale_specific_proxy)
 
 
 class FlaskS3ProxyBlueprint(FlaskS3Proxy):
