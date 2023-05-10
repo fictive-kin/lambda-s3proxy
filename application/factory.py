@@ -109,7 +109,10 @@ def _create_app(name, log_level=logging.WARN):
     # Due to the redirects possibly using these routes, we are adding these after having
     # instantiated all the redirects. If not for that, we could have used a config value
     app.s3_proxy.add_handled_routes(['/', '/<path:url>'], methods=['GET', 'POST'])
-    app.s3_proxy.setup_locales(file=app.config.get('S3_LOCALES_FILE', None))
+    app.s3_proxy.setup_locales(
+        file=app.config.get('S3_LOCALES_FILE', None),
+        enable_auto_switch=['/'],
+    )
 
     def is_allowed_origin():
         if app.allowed_origins:

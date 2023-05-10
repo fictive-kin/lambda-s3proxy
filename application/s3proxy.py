@@ -173,10 +173,10 @@ class FlaskS3Proxy:
 
         return abort(404)
 
-    def redirect_with_querystring(self, target):
+    def redirect_with_querystring(self, target, *, code=None):
         if request.query_string:
             target = f"{target}?{request.query_string.decode('utf-8')}"
-        return forced_host_redirect(target, code=self.redirect_code)
+        return forced_host_redirect(target, code=code if code else self.redirect_code)
 
     def datetime_to_header(self, dt):
         return time.strftime(
@@ -231,7 +231,7 @@ class FlaskS3Proxy:
 
         return None
 
-    def setup_locales(self, *, file=None, locales=None):
+    def setup_locales(self, *, file=None, locales=None, enable_auto_switch=None):
 
         if file is not None:
             try:
@@ -277,6 +277,26 @@ class FlaskS3Proxy:
                     methods=['GET', 'POST'],
                 )
                 setattr(self.app, f's3_proxy_{locale}', locale_specific_proxy)
+
+            if enable_auto_switch:
+                if isinstance(enable_auto_switch, bool):
+                    switchable_paths = ['/']
+                elif not isinstance(enable_auto_switch, (list, set, tuple,)):
+                    switchable_paths = [enable_auto_switch]
+                else:
+                    switchable_paths = enable_auto_switch
+
+                @self.app.before_request
+                def switch_locale():
+                    desired_locale = request.cookies.get('locale', False)
+
+                    if desired_locale and desired_locale in self.locales:
+                        if request.path in switchable_paths:
+                            self.app.logger.warning(
+                                f'Redirecting due to user cookie: {request.path} -> /{desired_locale}')
+                            return self.redirect_with_querystring(f'/{desired_locale}', code=303)
+
+                    return None
 
 
 class FlaskS3ProxyBlueprint(FlaskS3Proxy):
