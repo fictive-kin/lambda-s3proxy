@@ -11,6 +11,7 @@ dynaconf>=3.1.12
 Flask>=2.3.2
 Flask-Cors>=3.0.10
 flask-csp>=1.0.1
+haversine>=2.8.0
 hjson>=3.1.0
 idna>=3.4
 importlib-metadata>=6.6.0

@@ -114,6 +114,12 @@ def _create_app(name, log_level=logging.WARN):
         enable_auto_switch=['/'],
     )
 
+    paths = []
+    for path in app.config.get('PATHS_TO_LEAVE_TRAILING_SLASH', []):
+        paths.append(re.compile(rf'{path}'))
+
+    app.config.PATHS_TO_LEAVE_TRAILING_SLASH = paths
+
     def is_allowed_origin():
         if app.allowed_origins:
             origin = request.headers.get('Origin')
@@ -134,6 +140,11 @@ def _create_app(name, log_level=logging.WARN):
     @app.before_request
     def clear_trailing():
         rp = request.path
+
+        for path in app.config.PATHS_TO_LEAVE_TRAILING_SLASH:
+            if path.search(rp):
+                return
+
         if rp != '/' and rp.endswith('/'):
             return forced_host_redirect(rp[:-1], code=302)
 

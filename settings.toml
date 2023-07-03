@@ -7,7 +7,7 @@ ADD_CACHE_HEADERS = true
 # Sets the special endpoint to return the browser's location via CloudFront's geoip headers
 # This requires that the API Gateway is behind a _real_ CloudFront distro. If not set,
 # no localization endpoint is available
-# GEOGRAPHY_ROUTE = '/geography'
+# GEOGRAPHY_ROUTE = '/localizer'
 
 # Sets the allowed origins for CORS. Should be a list of allowed origins or '*' for any
 ALLOWED_ORIGINS = []
@@ -58,3 +58,7 @@ CSP_DEFAULT_SRC = [
     "unsafe-inline"
 ]
 CSP_UPGRADE_INSECURE_REQUESTS = true
+
+PATHS_TO_LEAVE_TRAILING_SLASH = [
+    "^/preview/",
+]

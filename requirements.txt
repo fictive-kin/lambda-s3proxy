@@ -6,6 +6,7 @@ dynaconf
 Flask
 flask-cors
 git+https://github.com/fictivekin/flask-csp.git#egg=flask-csp
+haversine
 markupsafe
 python-dateutil
 python-slugify
