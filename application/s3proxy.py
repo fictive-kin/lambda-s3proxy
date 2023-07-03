@@ -242,15 +242,16 @@ class FlaskS3Proxy:
                 self.app.logger.info('Loaded locales from S3')
 
             except ClientError as exc:
-                self.app.logger.exception(exc)
                 if exc.response['Error']['Code'] == 'NoSuchKey':
                     self.app.logger.warning(
                         f"Unable to instantiate multi-locales: {file} does not exist in S3")
-                else:
-                    raise
+                    return
+
+                raise
 
             except json.JSONDecodeError as exc:
                 self.app.logger.exception(exc)
+                return
 
         if isinstance(self.locales, str):
             # Attempt to JSON decode the value, since it might have been a JSON string in an env var
