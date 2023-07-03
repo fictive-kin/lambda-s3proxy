@@ -99,6 +99,10 @@ def _create_app(name, log_level=logging.WARN):
     CORS(app, origins=app.allowed_origins, supports_credentials=True)
     CSP(app)
 
+    logging.getLogger('boto3').setLevel(app.config.get('BOTO3_LOG_LEVEL', logging.CRITICAL))
+    logging.getLogger('botocore').setLevel(app.config.get('BOTOCORE_LOG_LEVEL', logging.CRITICAL))
+    logging.getLogger('sentry').setLevel(app.config.get('SENTRY_LOG_LEVEL', logging.CRITICAL))
+
     app.s3_proxy = FlaskS3Proxy(app)
     app.geography = FlaskGeography(app)
 
