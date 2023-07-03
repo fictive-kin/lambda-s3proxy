@@ -1,4 +1,5 @@
 
+import functools
 import io
 import json
 import os
@@ -6,7 +7,7 @@ import re
 import typing
 
 import boto3
-from flask import Flask, request, Response
+from flask import Flask, request, Response, render_template
 from slugify import slugify
 
 from application.utils import random_string
@@ -112,21 +113,76 @@ class Flask11tyServerless:
         """Return the route function with the appropriate response for a Flask routing rule"""
 
         def invoke_func(**kwargs):
-            data = self.lambda_client.invoke(
+            upstream_payload = json.dumps(
+                sanitize_headers(request.environ['lambda.event']),
+                cls=LambdaMessageEncoder,
+            )
+            upstream_response = self.lambda_client.invoke(
                 FunctionName=self._data[route_id].format(**kwargs),
                 InvocationType='RequestResponse',
-                Payload=json.dumps(request.environ['lambda.event'], cls=LambdaMessageEncoder).encode('utf-8')
+                Payload=upstream_payload.encode('utf-8')
             )
 
-            resp = json.load(data['Payload'])
+            payload = json.load(upstream_response['Payload'])
 
-            resp_kwargs = {
-                'status': resp['statusCode'],
-                'response': resp['body'],
-            }
-            if 'headers' in resp:
-                resp_kwargs.update({'headers': resp['headers']})
+            error_partial = functools.partial(
+                invoked_function_error_wrapper,
+                json.loads(upstream_payload),
+                upstream_response,
+            )
+            try:
+                status = payload.get('statusCode', 500)
+                if status == 404:
+                    return error_partial(json.loads(payload['body']))
+
+                resp_kwargs = {
+                    'status': payload.get('statusCode', 500),
+                    'response': payload['body'],
+                }
+                if 'headers' in payload:
+                    resp_kwargs.update({'headers': resp['headers']})
+            except (KeyError, IndexError, AttributeError) as exc:
+                self.app.logger.exception(exc)
+                return error_partial(payload)
 
             return Response(**resp_kwargs)
 
         return invoke_func
+
+
+def invoked_function_error_wrapper(upstream_payload, response_metadata, response_payload):
+
+    kwargs = {
+        'response': response_payload if response_payload else response_metadata,
+    }
+    if request.args.get('include_payload') == 'yes':
+        kwargs.update({
+            'payload': upstream_payload,
+        })
+
+    return Response(
+        status=503,
+        response=render_template(
+            "invoked-function-error.html",
+            **kwargs
+        ),
+    )
+
+
+def sanitize_headers(event_payload):
+    headers = {}
+    for k,v in event_payload.get('headers', {}).items():
+        if 'token' in k.lower() or 'auth' in k.lower():
+            continue
+        headers.update({k: v})
+
+    multi_headers = {}
+    for k,v in event_payload.get('multiValueHeaders', {}).items():
+        if 'token' in k.lower() or 'auth' in k.lower():
+            continue
+        multi_headers.update({k: v})
+
+    event_payload['headers'] = headers
+    event_payload['multiValueHeaders'] = multi_headers
+
+    return event_payload

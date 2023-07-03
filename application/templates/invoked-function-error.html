@@ -1,0 +1,18 @@
+<html>
+<head>
+  <title>Rendering Error</title>
+</head>
+<body>
+  <h1>An error occurred while invoking the dynamic function</h1>
+{% if payload %}
+  <h2>Lambda payload</h2>
+  <pre>
+{{payload |tojson(indent=4)}}
+  </pre>
+{% endif %}
+  <h2>Lambda response</h2>
+  <pre>
+{{response |tojson(indent=4)}}
+  </pre>
+</body>
+</html>
