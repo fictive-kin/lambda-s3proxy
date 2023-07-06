@@ -140,7 +140,7 @@ class Flask11tyServerless:
                     'response': payload['body'],
                 }
                 if 'headers' in payload:
-                    resp_kwargs.update({'headers': resp['headers']})
+                    resp_kwargs.update({'headers': payload['headers']})
             except (KeyError, IndexError, AttributeError) as exc:
                 self.app.logger.exception(exc)
                 return error_partial(payload)
