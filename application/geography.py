@@ -57,7 +57,10 @@ POINT_NEMO_HEADERS = {
 
 class FlaskGeography:
 
+    _cache = None
+
     def __init__(self, app: Flask = None, *, route: str = None):
+        self._cache = {}
         if app:
             self.init_app(app, route=route)
 
@@ -107,25 +110,31 @@ class FlaskGeography:
             if not app.s3_proxy:
                 return abort(404)
 
-            try:
-                data_file = app.s3_proxy.get_file(f'{filename}.json')
+            if filename not in self._cache:
+                try:
+                    data_file = app.s3_proxy.get_file(f'{filename}.json')
 
-            except botocore.exceptions.ClientError as exc:
-                if exc.response['Error']['Code'] == 'NoSuchKey':
-                    app.logger.warning(f"/{filename}.json does not exist!")
+                except botocore.exceptions.ClientError as exc:
+                    if exc.response['Error']['Code'] == 'NoSuchKey':
+                        app.logger.warning(f"/{filename}.json does not exist!")
+                        return abort(404)
+                    else:
+                        raise
+
+                try:
+                    data = {
+                        'points': json.load(data_file['Body']),
+                    }
+
+                except json.JSONDecodeError as exc:
+                    app.logger.error(f'/{filename}.json is not valid json')
+                    app.logger.exception(exc)
                     return abort(404)
-                else:
-                    raise
 
-            try:
-                data = {
-                    'points': json.load(data_file['Body']),
-                }
+                self._cache[filename] = data.copy()
 
-            except json.JSONDecodeError as exc:
-                app.logger.error(f'/{filename}.json is not valid json')
-                app.logger.exception(exc)
-                return abort(404)
+            else:
+                data = self._cache[filename].copy()
 
             if request.args.get('unit'):
                 data.update({'unit': request.args['unit']})
