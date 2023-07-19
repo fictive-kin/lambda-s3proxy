@@ -4,7 +4,14 @@ import json
 from urllib.parse import unquote
 
 import botocore
-from flask import Flask, Blueprint, abort, request, jsonify
+from flask import (
+    Blueprint,
+    Flask,
+    abort,
+    current_app,
+    jsonify,
+    request,
+)
 from flask_cors import cross_origin
 
 try:
@@ -16,6 +23,7 @@ except ImportError:
 
 GEOGRAPHY_OPTIONS = [
     "ROUTE",
+    "USE_COUNTRY_CODE_COMPARISON",
 ]
 
 DESIRED_HEADERS = {
@@ -54,6 +62,18 @@ POINT_NEMO_HEADERS = {
     'timezone': 'Etc/GMT-9',
 }
 
+TESTING_HEADERS = {
+    "city": "Saint-Eugene",
+    "country_code": "CA",
+    "country_name": "Canada",
+    "latitude": 45.8103,
+    "longitude": -72.6982,
+    "postal_code": "J0C",
+    "region_code": "QC",
+    "region_name": "Quebec",
+    "timezone": "America/Toronto",
+}
+
 
 class FlaskGeography:
 
@@ -74,43 +94,29 @@ class FlaskGeography:
                 self.app.logger.warning('Cannot instantiate FlaskGeography without a route defined')
                 return
 
-        def cf_to_normal(headers):
-            returnable = {}
+        country_code_comparison = app.config.get('GEOGRAPHY_USE_COUNTRY_CODE_COMPARISON', True)
 
-            for header, value in request.headers:
-                if header.lower() in DESIRED_HEADERS:
-                    try:
-                        return_value = unquote(value)
-
-                    except TypeError as exc:
-                        self.app.logger.exception(exc)
-                        return_value = value
-
-                    if header.lower() in AS_FLOAT:
-                        return_value = float(return_value)
-
-                    returnable.update({
-                        DESIRED_HEADERS[header.lower()]: return_value
-                    })
-
-            if not returnable:
-                # When we're not running behind CloudFront, we want valid data,
-                # but want to be able to tell easily that it's inaccurate.
-                returnable = POINT_NEMO_HEADERS
-
-            return returnable
+        def init_response():
+            arg_use_country_code = request.args.get('limit_by_country')
+            if arg_use_country_code:  # Truthy because of strings, regardless of value
+                use_country_code = arg_use_country_code not in ['false', '0', '']
+            else:
+                use_country_code = country_code_comparison
+            return FlaskGeographyResponse(country_code_comparison=use_country_code)
 
         @app.route(route)
         @cross_origin(origins=['*'], methods=['GET', 'OPTIONS'])
         def geography():
-            return jsonify(cf_to_normal(request.headers))
+            return init_response().basic()
 
         @app.route(f'{route}/closest-to-user/<path:filename>', methods=['GET'])
         def closest_to_user(filename):
             if not app.s3_proxy:
                 return abort(404)
 
-            if filename not in self._cache:
+            force_refresh = bool(request.args.get('force_refresh', None))
+
+            if filename not in self._cache or force_refresh:
                 try:
                     data_file = app.s3_proxy.get_file(f'{filename}.json')
 
@@ -139,87 +145,135 @@ class FlaskGeography:
             if request.args.get('unit'):
                 data.update({'unit': request.args['unit']})
 
-            return get_distances(data)
+            return init_response().closest_to_user(data)
 
         @app.route(f'{route}/closest-to-user', methods=['POST'])
         def distances():
-            return get_distances(request.json)
+            return init_response().closest_to_user(request.json)
 
-        def get_distances(data):
-            """
-            data is a dict of:
 
-            {
-                'unit': Unit.KILOMETERS,  # Optional, can be any of the supported units of Haversine
-                'home': [  # Optional latitude/longitude pair. default is taken from CF headers
-                    45.1234,
-                    -53.1234,
-                ],
-                'points': {
-                   # Required, list of points to compare against, a unique id + lat/long pair + any desired extra keys
-                   'id1': {
-                       'latitude': 45.1235,
-                       'longitude': -53.1234,
-                       ...other ignored keys
-                   },
-                   ...
-                }
+class FlaskGeographyResponse:
+
+    cf_headers = None
+    closest = None
+    points = None
+    home = None
+    country_code_comparison = None
+
+    def __init__(self, *, country_code_comparison=True):
+        self.cf_headers = {}
+
+        for header, value in request.headers:
+            if header.lower() in DESIRED_HEADERS:
+                try:
+                    value = unquote(value)
+
+                except TypeError as exc:
+                    self.app.logger.exception(exc)
+
+                if header.lower() in AS_FLOAT:
+                    value = float(value)
+
+                self.cf_headers.update({
+                    DESIRED_HEADERS[header.lower()]: value
+                })
+
+        if not self.cf_headers:
+            # When we're not running behind CloudFront, we want valid data,
+            # but want to be able to tell easily that it's inaccurate.
+            self.cf_headers = TESTING_HEADERS if current_app.debug else POINT_NEMO_HEADERS
+
+        self.closest = {}
+        self.points = {}
+        self.home = {}
+        self.unit = REGION_UNIT.get(self.cf_headers['country_code'], Unit.KILOMETERS)
+        self.country_code_comparison = bool(country_code_comparison)
+
+    def basic(self):
+        return jsonify(self.cf_headers)
+
+    def closest_to_user(self, data):
+        """
+        data is a dict of:
+
+        {
+            'unit': Unit.KILOMETERS,  # Optional, can be any of the supported units of Haversine
+            'home': [  # Optional latitude/longitude pair. default is taken from CF headers
+                45.1234,
+                -53.1234,
+            ],
+            'points': {
+               # Required, list of points to compare against, a unique id + lat/long pair + any desired extra keys
+               'id1': {
+                   'latitude': 45.1235,
+                   'longitude': -53.1234,
+                   ...other ignored keys
+               },
+               ...
             }
-            """
+        }
+        """
 
-            if not HAS_HAVERSINE:
-                return abort(404)
+        if not HAS_HAVERSINE:
+            return abort(404)
 
-            localization = cf_to_normal(request.headers)
-            if localization == POINT_NEMO_HEADERS:
-                return abort(404)
+        if self.cf_headers == POINT_NEMO_HEADERS:
+            return abort(404)
 
-            if not data.get('points'):
-                raise abort(400)
+        if not data.get('points'):
+            raise abort(400)
 
-            unit = data.get('unit', REGION_UNIT.get(localization['country_code'], Unit.KILOMETERS))
+        if data.get('unit'):
+            self.unit = data.get('unit')
             if not isinstance(unit, Unit):
                 try:
-                    unit = Unit[unit.upper()]
+                    self.unit = Unit[self.unit.upper()]
                 except IndexError:
                     raise abort(400)
 
-            home = data.get('home', (localization['latitude'], localization['longitude'],))
-            closest = None
-            points = {}
+        self.home = data.get('home', (self.cf_headers['latitude'], self.cf_headers['longitude'],))
+        self.closest = None
+        self.points = {}
 
-            if isinstance(data['points'], (list, set,)):
-                for point in data['points']:
-                    if 'id' not in point or 'latitude' not in point or 'longitude' not in point:
-                        continue
+        if isinstance(data['points'], (list, set,)):
+            for point in data['points']:
+                if 'id' not in point or 'latitude' not in point or 'longitude' not in point:
+                    continue
 
-                    id_ = point['id']
-                    ll = (float(point['latitude']), float(point['longitude']),)
+                id_ = point['id']
+                ll = (float(point['latitude']), float(point['longitude']),)
 
-                    distance = haversine(home, ll, unit=unit)
-                    if closest is None or distance < closest['distance']:
-                        closest = {
-                            'id': id_,
-                            'distance': distance,
-                        }
+                self.points.update({id_: point})
+                self.calculate_distance(id_, ll, point.get('country_code', None))
 
-                    points.update({id_: point})
-                    points[id_].update({'distance': distance})
+        else:
+            for id_,ll in data['points'].items():
+                self.points.update({id_: {
+                    'latitude': ll[0],
+                    'longitude': ll[1],
+                }})
+                self.calculate_distance(id_, ll)
 
-            else:
-                for id_,ll in data['points'].items():
-                    distance = haversine(home, ll, unit=unit)
-                    if closest is None or distance < closest['distance']:
-                        closest = {
-                            'id': id_,
-                            'distance': distance,
-                        }
+        return jsonify({
+            'unit': self.unit,
+            'closest': self.closest,
+            'points': self.points,
+        })
 
-                    points.update({id_: point})
-                    points[id_].update({'distance': distance})
+    def calculate_distance(self, id_, ll, country_code=None):
 
-            return jsonify({
-                'unit': unit,
-                'closest': closest,
-                'points': points,
-            })
+        distance = haversine(self.home, ll, unit=self.unit)
+        self.points[id_].update({'distance': distance})
+
+        if (
+            self.country_code_comparison and
+            country_code is not None and
+            country_code != self.cf_headers['country_code']
+        ):
+                return
+
+        if self.closest is None or distance < self.closest['distance']:
+            self.closest = {
+                'id': id_,
+                'distance': distance,
+            }

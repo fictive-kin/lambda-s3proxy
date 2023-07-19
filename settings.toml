@@ -9,8 +9,11 @@ ADD_CACHE_HEADERS = true
 # no localization endpoint is available
 # GEOGRAPHY_ROUTE = '/localizer'
 
+# Enable the use of country_code, when finding points closest to the user. Default is true.
+# GEOGRAPHY_USE_COUNTRY_CODE_COMPARISON = true
+
 # Sets the allowed origins for CORS. Should be a list of allowed origins or '*' for any
-ALLOWED_ORIGINS = []
+ALLOWED_ORIGINS = ['*']
 
 # OPTIONS requests bypass all checks other than against ALLOWED_ORIGINS when this is true
 SHORTCIRCUIT_OPTIONS = true
