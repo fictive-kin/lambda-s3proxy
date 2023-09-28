@@ -13,10 +13,6 @@ from slugify import slugify
 from application.utils import random_string
 
 
-ELEVENTY_OPTIONS = [
-]
-
-
 class LambdaMessageEncoder(json.JSONEncoder):
     def default(self, obj):
         if not type(obj) in [int, float, complex, dict, tuple, list, bool] and obj is not None:
@@ -59,10 +55,6 @@ class Flask11tyServerless:
             raise TypeError("Invalid Flask app instance provided.")
 
         self.app = app
-
-        option_prefix = 'ELEVENTY_'
-        for key in ELEVENTY_OPTIONS:
-            setattr(self, key.lower(), app.config.get(f'{option_prefix}{key}'))
 
         self.lambda_client = boto3.client('lambda')
 

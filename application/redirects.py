@@ -7,28 +7,19 @@ from flask import Flask, redirect
 from sentry_sdk import capture_exception
 from slugify import slugify
 
-from application.utils import random_string, forced_host_redirect
-
-REDIRECT_CODE = 302
-
-REDIRECT_OPTIONS = [
-    "DEFAULT_STATUS_CODE",
-    "HANDLE_TRAILING_SLASH",
-]
+from application.utils import random_string, forced_host_redirect, str2bool
 
 
 class FlaskJSONRedirects:
     """A Flask extension to handle a redirects JSON file to be able to add redirected routes easily"""
 
     app: Flask = None
-    default_status_code: int = REDIRECT_CODE
-    handle_trailing_slash: bool = False
+    _default_status_code: int = None
+    _handle_trailing_slash: bool = None
     _data: typing.Dict = None
 
     def __init__(self, app: Flask = None, *, file: typing.Union[str, io.IOBase] = None):
 
-        self.default_status_code = REDIRECT_CODE
-        self.handle_trailing_slash = False
         self._data = {}
 
         if app:
@@ -49,15 +40,38 @@ class FlaskJSONRedirects:
 
         self.app = app
 
-        option_prefix = 'REDIRECTS_'
-        for key in REDIRECT_OPTIONS:
-            setattr(self, key.lower(), app.config.get(f'{option_prefix}{key}'))
-
-        self.default_status_code = int(self.default_status_code) if self.default_status_code else 302
-        self.handle_trailing_slash = bool(self.handle_trailing_slash)
-
         if file is not None:
             self.process_redirects_from_file(file)
+
+    @property
+    def default_status_code(self):
+        if self._default_status_code is not None:
+            return self._default_status_code
+
+        if self.app is None:
+            raise ValueError('FlaskJSONRedirects is not fully initialized')
+
+        self._default_status_code = int(self.app.config.get('REDIRECTS_DEFAULT_STATUS_CODE', 302))
+        return self._default_status_code
+
+    @default_status_code.setter
+    def default_status_code(self, value):
+        self._default_status_code = int(value)
+
+    @property
+    def handle_trailing_slash(self):
+        if self._handle_trailing_slash is not None:
+            return self._handle_trailing_slash
+
+        if self.app is None:
+            raise ValueError('FlaskJSONRedirects is not fully initialized')
+
+        self._handle_trailing_slash = str2bool(self.app.config.get('REDIRECTS_HANDLE_TRAILING_SLASH', False))
+        return self._handle_trailing_slash
+
+    @handle_trailing_slash.setter
+    def handle_trailing_slash(self, value):
+        self._handle_trailing_slash = bool(value)
 
     def process_redirects_from_file(self, file: typing.Union[str, io.IOBase], *, encoding: str = None):
         """Process a JSON file of redirects to create them within Flask"""

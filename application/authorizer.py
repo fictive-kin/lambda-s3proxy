@@ -7,21 +7,15 @@ import typing
 from flask import Flask, Response, request, jsonify
 from werkzeug.http import parse_authorization_header
 
-from application.utils import random_string
-
-
-AUTHORIZER_OPTIONS = [
-    "DEFAULT_REALM",
-    "ROUTES",
-]
+from application.utils import random_string, str2json
 
 
 class FlaskJSONAuthorizer:
     """A Flask extension to handle an authorizations JSON file to be able to protect routes easily"""
 
     app: Flask = None
-    default_realm: str = None
-    routes: typing.Dict = None
+    _default_realm: str = None
+    _routes: typing.Dict = None
     _simple: typing.Dict = None
     _regexes: typing.Dict = None
 
@@ -49,15 +43,6 @@ class FlaskJSONAuthorizer:
 
         self.app = app
 
-        option_prefix = 'AUTHORIZER_'
-        for key in AUTHORIZER_OPTIONS:
-            setattr(self, key.lower(), app.config.get(f'{option_prefix}{key}'))
-
-        if not self.default_realm:
-            # We need something to fallback on if the realm is not specified when we do the
-            # authorization check
-            self.default_realm = 'Restricted Access'
-
         if file is not None:
             self.process_authorizations_from_file(file)
 
@@ -65,6 +50,36 @@ class FlaskJSONAuthorizer:
             self.process_authorizations(self.routes)
 
         self.app.before_request(self.check_authorization)
+
+    @property
+    def default_realm(self):
+        if self._default_realm:
+            return self._default_realm
+
+        if self.app is None:
+            raise ValueError('FlaskJSONAuthorizer is not fully initialized')
+
+        self._default_realm = self.app.config.get('AUTHORIZER_DEFAULT_REALM', 'Restricted Access')
+        return self._default_realm
+
+    @default_realm.setter
+    def default_realm(self, value):
+        self._default_realm = value
+
+    @property
+    def routes(self):
+        if self._routes is not None:
+            return self._routes
+
+        if self.app is None:
+            raise ValueError('FlaskJSONAuthorizer is not fully initialized')
+
+        self._routes = str2json(self.app.config.get('AUTHORIZER_ROUTES', []))
+        return self._routes
+
+    @routes.setter
+    def routes(self, value):
+        self._routes = value
 
     def process_authorizations_from_file(self, file: typing.Union[str, io.IOBase], *, encoding: str = None):
         """Process a JSON file of authorizations to protect routes within Flask"""

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import typing
 from urllib.parse import unquote
 
 import botocore
@@ -20,11 +21,6 @@ try:
 except ImportError:
     HAS_HAVERSINE = False
 
-
-GEOGRAPHY_OPTIONS = [
-    "ROUTE",
-    "USE_COUNTRY_CODE_COMPARISON",
-]
 
 DESIRED_HEADERS = {
     'cloudfront-viewer-country': 'country_code',
@@ -77,31 +73,55 @@ TESTING_HEADERS = {
 
 class FlaskGeography:
 
-    _cache = None
+    _use_country_code_comparison: bool = None
+    _route: str = None
+    _cache: typing.Dict = None
 
     def __init__(self, app: Flask = None, *, route: str = None):
         self._cache = {}
         if app:
             self.init_app(app, route=route)
 
+    @property
+    def route(self):
+        if self._route is not None:
+            return self._route
+
+        self._route = self.app.config.get('GEOGRAPHY_ROUTE')
+        return self._route
+
+    @route.setter
+    def route(self, value):
+        self._route = value
+
+    @property
+    def use_country_code_comparison(self):
+        if self._use_country_code_comparison is not None:
+            return self._use_country_code_comparison
+
+        self._use_country_code_comparison = str2bool(self.app.config.get('GEOGRAPHY_USE_COUNTRY_CODE_COMPARISON', True))
+        return self._use_country_code_comparison
+
+    @use_country_code_comparison.setter
+    def use_country_code_comparison(self, value):
+        self._use_country_code_comparison = bool(value)
+
     def init_app(self, app: Flask, *, route: str = None):
         self.app = app
 
-        if route is None:
-            if app.config.get('GEOGRAPHY_ROUTE'):
-                route = app.config['GEOGRAPHY_ROUTE']
-            else:
-                self.app.logger.warning('Cannot instantiate FlaskGeography without a route defined')
-                return
+        if route is not None:
+            self.route = route
 
-        country_code_comparison = app.config.get('GEOGRAPHY_USE_COUNTRY_CODE_COMPARISON', True)
+        if not self.route:
+            self.app.logger.warning('Cannot instantiate FlaskGeography without a route defined')
+            return
 
         def init_response():
             arg_use_country_code = request.args.get('limit_by_country')
             if arg_use_country_code:  # Truthy because of strings, regardless of value
                 use_country_code = arg_use_country_code not in ['false', '0', '']
             else:
-                use_country_code = country_code_comparison
+                use_country_code = self.country_code_comparison
             return FlaskGeographyResponse(country_code_comparison=use_country_code)
 
         @app.route(route)
