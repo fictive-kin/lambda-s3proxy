@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 import random
 import string
 
@@ -7,8 +8,20 @@ import botocore
 from flask import Response, abort, current_app
 
 
+def str2json(s):
+    if not isinstance(s, str):
+        return s
+
+    try:
+        s = json.loads(s)
+    except json.JSONDecodeError as exc:
+        current_app.logger.exception(exc)
+
+    return s
+
+
 def str2bool(s):
-    if s == 'False' or s == 'false' or s == 'FALSE' or s == '0':
+    if isinstance(s, str) and (s.lower() == 'false' or s == '0'):
         return False
     return bool(s)
 

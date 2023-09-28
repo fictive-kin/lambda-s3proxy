@@ -119,7 +119,15 @@ def _create_app(name, log_level=logging.WARN):
     )
 
     paths = []
-    for path in app.config.get('PATHS_TO_LEAVE_TRAILING_SLASH', []):
+    paths_to_leave_trailing_slash = app.config.get('PATHS_TO_LEAVE_TRAILING_SLASH', [])
+    if not isinstance(paths_to_leave_trailing_slash, list):
+        try:
+            paths_to_leave_trailing_slash = json.loads(paths_to_leave_trailing_slash)
+        except json.JSONDecodeError as exc:
+            app.exception(exc)
+            paths_to_leave_trailing_slash = []
+
+    for path in paths_to_leave_trailing_slash:
         paths.append(re.compile(rf'{path}'))
 
     app.config.PATHS_TO_LEAVE_TRAILING_SLASH = paths
@@ -150,7 +158,10 @@ def _create_app(name, log_level=logging.WARN):
                 return
 
         if rp != '/' and rp.endswith('/'):
-            return forced_host_redirect(rp[:-1], code=302)
+            return forced_host_redirect(
+                rp[:-1],
+                code=app.config.get('REDIRECTS_DEFAULT_STATUS_CODE', 302),
+            )
 
     @app.before_request
     def chk_shortcircuit():

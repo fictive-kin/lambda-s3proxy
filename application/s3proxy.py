@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from functools import cached_property
 import json
 import time
 
@@ -9,7 +10,7 @@ from flask import Flask, abort, Blueprint, Response, redirect, request
 import pytz
 from slugify import slugify
 
-from application.utils import forced_host_redirect
+from application.utils import forced_host_redirect, str2bool, str2json
 
 
 # When working behind APIGateway, we have a hard limit of a 10 MB response payload and when
@@ -17,28 +18,18 @@ from application.utils import forced_host_redirect
 # that no issues will arise.
 OVERFLOW_SIZE = 4.5 * 1024 * 1024
 
-REDIRECT_CODE = 302
 HTTP_HEADER_DATE_FORMAT = '%a, %d %b %Y %H:%M:%S GMT'
-
-S3PROXY_OPTIONS = [
-    "BUCKET",
-    "PREFIX",
-    "TRAILING_SLASH_REDIRECTION",
-    "REDIRECT_CODE",
-    "ROUTES",
-    "LOCALES",
-]
 
 
 class FlaskS3Proxy:
     _client = None
     app: Flask = None
-    bucket: str = None
-    prefix: str = None
-    trailing_slash_redirection: bool = True
-    redirect_code: int = REDIRECT_CODE
-    routes: list = None
-    locales: list = None
+    _bucket: str = None
+    _prefix: str = None
+    _trailing_slash_redirection: bool = None
+    _redirect_code: int = None
+    _routes: list = None
+    _locales: list = None
 
     def __init__(self, app, *, boto3_client=None, bucket=None, prefix=None, paths=None, **kwargs):
         if boto3_client is None:
@@ -61,14 +52,6 @@ class FlaskS3Proxy:
         if prefix is not None:
             self.prefix = prefix
 
-        option_prefix = 'S3PROXY_'
-        for key in S3PROXY_OPTIONS:
-            if self.app.config.get(f'{option_prefix}{key}'):
-                setattr(self, key.lower(), self.app.config.get(f'{option_prefix}{key}'))
-
-        self.redirect_code = int(self.redirect_code) if self.redirect_code else REDIRECT_CODE
-        self.trailing_slash_redirection = bool(self.trailing_slash_redirection)
-
         try:
             if self.prefix.startswith('/'):
                 self.prefix = self.prefix[1:]
@@ -80,6 +63,96 @@ class FlaskS3Proxy:
                 self.prefix = self.prefix[:-1]
         except Exception:  # pylint: disable=broad-except
             pass
+
+    @property
+    def bucket(self):
+        if self._bucket is not None:
+            return self._bucket
+
+        if self.app is None:
+            raise ValueError('FlaskS3Proxy is not fully initialized')
+
+        self._bucket = self.app.config.get('S3PROXY_BUCKET')
+        return self._bucket
+
+    @bucket.setter
+    def bucket(self, value):
+        self._bucket = value
+
+    @property
+    def prefix(self):
+        if self._prefix is not None:
+            return self._prefix
+
+        if self.app is None:
+            raise ValueError('FlaskS3Proxy is not fully initialized')
+
+        self._prefix = self.app.config.get('S3PROXY_PREFIX')
+        return self._prefix
+
+    @prefix.setter
+    def prefix(self, value):
+        self._prefix = value
+
+    @property
+    def routes(self):
+        if self._routes is not None:
+            return self._routes
+
+        if self.app is None:
+            raise ValueError('FlaskS3Proxy is not fully initialized')
+
+        self._routes = str2json(self.app.config.get('S3PROXY_ROUTES'))
+        return self._routes
+
+    @routes.setter
+    def routes(self, value):
+        self._routes = value
+
+    @property
+    def locales(self):
+        if self._locales is not None:
+            return self._locales
+
+        if self.app is None:
+            raise ValueError('FlaskS3Proxy is not fully initialized')
+
+        self._locales = str2json(self.app.config.get('S3PROXY_LOCALES'))
+        return self.locales
+
+    @locales.setter
+    def locales(self, value):
+        self._locales = value
+
+    @property
+    def trailing_slash_redirection(self):
+        if self._trailing_slash_redirection is not None:
+            return self._trailing_slash_redirection
+
+        if self.app is None:
+            raise ValueError('FlaskS3Proxy is not fully initialized')
+
+        self._trailing_slash_redirection = str2bool(self.app.config.get('S3PROXY_TRAILING_SLASH_REDIRECTION', True))
+        return self._trailing_slash_redirection
+
+    @trailing_slash_redirection.setter
+    def trailing_slash_redirection(self, value):
+        self._trailing_slash_redirection = bool(value)
+
+    @property
+    def redirect_code(self):
+        if self._redirect_code is not None:
+            return self._redirect_code
+
+        if self.app is None:
+            raise ValueError('FlaskS3Proxy is not fully initialized')
+
+        self._redirect_code = int(self.app.config.get('S3PROXY_REDIRECT_CODE', 302))
+        return self._redirect_code
+
+    @redirect_code.setter
+    def redirect_code(self, value):
+        self._redirect_code = int(value)
 
     def init_app(self, app, *, bucket=None, prefix=None, paths=None, **kwargs):
         self.app = app
