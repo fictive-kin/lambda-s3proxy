@@ -21,6 +21,8 @@ try:
 except ImportError:
     HAS_HAVERSINE = False
 
+from .utils import str2bool
+
 
 DESIRED_HEADERS = {
     'cloudfront-viewer-country': 'country_code',
@@ -121,15 +123,15 @@ class FlaskGeography:
             if arg_use_country_code:  # Truthy because of strings, regardless of value
                 use_country_code = arg_use_country_code not in ['false', '0', '']
             else:
-                use_country_code = self.country_code_comparison
+                use_country_code = self.use_country_code_comparison
             return FlaskGeographyResponse(country_code_comparison=use_country_code)
 
-        @app.route(route)
+        @app.route(self.route)
         @cross_origin(origins=['*'], methods=['GET', 'OPTIONS'])
         def geography():
             return init_response().basic()
 
-        @app.route(f'{route}/closest-to-user/<path:filename>', methods=['GET'])
+        @app.route(f'{self.route}/closest-to-user/<path:filename>', methods=['GET'])
         def closest_to_user(filename):
             if not app.s3_proxy:
                 return abort(404)
@@ -167,7 +169,7 @@ class FlaskGeography:
 
             return init_response().closest_to_user(data)
 
-        @app.route(f'{route}/closest-to-user', methods=['POST'])
+        @app.route(f'{self.route}/closest-to-user', methods=['POST'])
         def distances():
             return init_response().closest_to_user(request.json)
 
