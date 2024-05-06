@@ -5,7 +5,7 @@ import re
 import typing
 
 from flask import Flask, Response, request, jsonify
-from werkzeug.http import parse_authorization_header
+from werkzeug.datastructures import Authorization
 
 from application.utils import random_string, str2json
 
@@ -104,7 +104,7 @@ class FlaskJSONAuthorizer:
 
         for uri, data in authorizations.items():
             if isinstance(data, str):
-                auth = parse_authorization_header(f'Basic {data}')
+                auth = Authorization.from_header(f'Basic {data}')
                 username = auth.username
                 password = auth.password
                 realm = None
@@ -163,7 +163,7 @@ class FlaskJSONAuthorizer:
             # This means that we didn't have any protection rules setup for this route
             return
 
-        auth = parse_authorization_header(request.headers.get('Authorization'))
+        auth = Authorization.from_header(request.headers.get('Authorization'))
         if auth is not None and auth.username is not None and auth.password is not None:
             if auth.username == data['username'] and auth.password == data['password']:
                 # The browser provided the correct credentials
