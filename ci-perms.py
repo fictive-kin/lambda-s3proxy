@@ -11,6 +11,7 @@ from awacs import (
     s3,
     sts
 )
+import boto3
 import click
 
 
