@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from dataclasses import dataclass
 import json
 import typing
 from urllib.parse import unquote
@@ -76,6 +77,7 @@ TESTING_HEADERS = {
 class FlaskGeography:
 
     _use_country_code_comparison: bool = None
+    _include_absolute_closest: bool = None
     _route: str = None
     _cache: typing.Dict = None
 
@@ -108,6 +110,18 @@ class FlaskGeography:
     def use_country_code_comparison(self, value):
         self._use_country_code_comparison = bool(value)
 
+    @property
+    def include_absolute_closest(self):
+        if self._include_absolute_closest is not None:
+            return self._include_absolute_closest
+
+        self._include_absolute_closest = str2bool(self.app.config.get('GEOGRAPHY_INCLUDE_ABSOLUTE_CLOSEST', True))
+        return self._include_absolute_closest
+
+    @include_absolute_closest.setter
+    def include_absolute_closest(self, value):
+        self._include_absolute_closest = bool(value)
+
     def init_app(self, app: Flask, *, route: str = None):
         self.app = app
 
@@ -124,7 +138,17 @@ class FlaskGeography:
                 use_country_code = arg_use_country_code not in ['false', '0', '']
             else:
                 use_country_code = self.use_country_code_comparison
-            return FlaskGeographyResponse(country_code_comparison=use_country_code)
+
+            arg_include_absolute_closest = request.args.get('include_absolute_closest')
+            if arg_include_absolute_closest:  # Truthy because of strings, regardless of value
+                include_absolute_closest = arg_include_absolute_closest not in ['false', '0', '']
+            else:
+                include_absolute_closest = self.include_absolute_closest
+
+            return FlaskGeographyResponse(
+                country_code_comparison=use_country_code,
+                include_absolute_closest=include_absolute_closest,
+            )
 
         @app.route(self.route)
         @cross_origin(origins=['*'], methods=['GET', 'OPTIONS'])
@@ -177,12 +201,14 @@ class FlaskGeography:
 class FlaskGeographyResponse:
 
     cf_headers = None
-    closest = None
+    incountry_closest = None
+    absolute_closest = None
     points = None
     home = None
     country_code_comparison = None
+    include_absolute_closest = None
 
-    def __init__(self, *, country_code_comparison=True):
+    def __init__(self, *, country_code_comparison=True, include_absolute_closest=True):
         self.cf_headers = {}
 
         for header, value in request.headers:
@@ -205,11 +231,13 @@ class FlaskGeographyResponse:
             # but want to be able to tell easily that it's inaccurate.
             self.cf_headers = TESTING_HEADERS if current_app.debug else POINT_NEMO_HEADERS
 
-        self.closest = {}
+        self.incountry_closest = {}
+        self.absolute_closest = {}
         self.points = {}
         self.home = {}
         self.unit = REGION_UNIT.get(self.cf_headers['country_code'], Unit.KILOMETERS)
         self.country_code_comparison = bool(country_code_comparison)
+        self.include_absolute_closest = bool(include_absolute_closest)
 
     def basic(self):
         return jsonify(self.cf_headers)
@@ -254,7 +282,8 @@ class FlaskGeographyResponse:
                     raise abort(400)
 
         self.home = data.get('home', (self.cf_headers['latitude'], self.cf_headers['longitude'],))
-        self.closest = None
+        self.absolute_closest = None
+        self.incountry_closest = None
         self.points = {}
 
         if isinstance(data['points'], (list, set,)):
@@ -276,26 +305,68 @@ class FlaskGeographyResponse:
                 }})
                 self.calculate_distance(id_, ll)
 
+        if self.include_absolute_closest:
+            closest = {
+                'absolute': self.absolute_closest or {},
+                'incountry': self.incountry_closest or {},
+            }
+
+        elif self.country_code_comparison:
+            closest = self.incountry_closest or {}
+
+        else:
+            closest = self.absolute_closest or {}
+
         return jsonify({
             'unit': self.unit,
-            'closest': self.closest,
+            'closest': closest,
             'points': self.points,
         })
 
     def calculate_distance(self, id_, ll, country_code=None):
 
-        distance = haversine(self.home, ll, unit=self.unit)
-        self.points[id_].update({'distance': distance})
+        distance = LocationDistance(
+            id=id_,
+            distance=haversine(self.home, ll, unit=self.unit),
+        )
+        self.points[id_].update({'distance': distance.distance})
+
+        if not self.absolute_closest or distance.is_closer(self.absolute_closest):
+            self.absolute_closest = distance
 
         if (
-            self.country_code_comparison and
             country_code is not None and
-            country_code != self.cf_headers['country_code']
+            country_code == self.cf_headers['country_code']
         ):
-                return
+            if not self.incountry_closest or distance.is_closer(self.incountry_closest):
+                self.incountry_closest = distance
 
-        if self.closest is None or distance < self.closest['distance']:
-            self.closest = {
-                'id': id_,
-                'distance': distance,
-            }
+
+@dataclass
+class LocationDistance:
+    id: str = None
+    distance: float = None
+
+    def is_closer(self, other):
+        if isinstance(other, self.__class__):
+            return self.distance < other.distance
+        if isinstance(other, (int, float,)):
+            return self.distance < other
+
+        return False
+
+    def is_equal(self, other):
+        if isinstance(other, self.__class__):
+            return self.distance == other.distance
+        if isinstance(other, (int, float,)):
+            return self.distance == other
+
+        return False
+
+    def is_further(self, other):
+        if isinstance(other, self.__class__):
+            return self.distance > other.distance
+        if isinstance(other, (int, float,)):
+            return self.distance > other
+
+        return False
