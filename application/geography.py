@@ -76,6 +76,7 @@ TESTING_HEADERS = {
 
 class FlaskGeography:
 
+    _backwards_compatible: bool = None
     _use_country_code_comparison: bool = None
     _include_absolute_closest: bool = None
     _route: str = None
@@ -122,6 +123,18 @@ class FlaskGeography:
     def include_absolute_closest(self, value):
         self._include_absolute_closest = bool(value)
 
+    @property
+    def backwards_compatible(self):
+        if self._backwards_compatible is not None:
+            return self._backwards_compatible
+
+        self._backwards_compatible = str2bool(self.app.config.get('GEOGRAPHY_BACKWARDS_COMPATIBLE', False))
+        return self._backwards_compatible
+
+    @backwards_compatible.setter
+    def backwards_compatible(self, value):
+        self._backwards_compatible = bool(value)
+
     def init_app(self, app: Flask, *, route: str = None):
         self.app = app
 
@@ -145,9 +158,16 @@ class FlaskGeography:
             else:
                 include_absolute_closest = self.include_absolute_closest
 
+            arg_backwards_compatible = request.args.get('backwards_compatible')
+            if arg_backwards_compatible:  # Truthy because of strings, regardless of value
+                backwards_compatible = arg_backwards_compatible not in ['false', '0', '']
+            else:
+                backwards_compatible = self.backwards_compatible
+
             return FlaskGeographyResponse(
                 country_code_comparison=use_country_code,
                 include_absolute_closest=include_absolute_closest,
+                backwards_compatible=backwards_compatible,
             )
 
         @app.route(self.route)
@@ -201,14 +221,21 @@ class FlaskGeography:
 class FlaskGeographyResponse:
 
     cf_headers = None
-    incountry_closest = None
+    incountry_points = None
     absolute_closest = None
     points = None
     home = None
     country_code_comparison = None
     include_absolute_closest = None
+    backwards_compatible = None
 
-    def __init__(self, *, country_code_comparison=True, include_absolute_closest=True):
+    def __init__(
+        self,
+        *,
+        country_code_comparison=True,
+        include_absolute_closest=True,
+        backwards_compatible=False,
+    ):
         self.cf_headers = {}
 
         for header, value in request.headers:
@@ -231,13 +258,14 @@ class FlaskGeographyResponse:
             # but want to be able to tell easily that it's inaccurate.
             self.cf_headers = TESTING_HEADERS if current_app.debug else POINT_NEMO_HEADERS
 
-        self.incountry_closest = {}
+        self.incountry_points = []
         self.absolute_closest = {}
         self.points = {}
         self.home = {}
         self.unit = REGION_UNIT.get(self.cf_headers['country_code'], Unit.KILOMETERS)
         self.country_code_comparison = bool(country_code_comparison)
         self.include_absolute_closest = bool(include_absolute_closest)
+        self.backwards_compatible = bool(backwards_compatible)
 
     def basic(self):
         return jsonify(self.cf_headers)
@@ -305,23 +333,27 @@ class FlaskGeographyResponse:
                 }})
                 self.calculate_distance(id_, ll)
 
-        if self.include_absolute_closest:
-            closest = {
-                'absolute': self.absolute_closest or {},
-                'incountry': self.incountry_closest or {},
-            }
+        self.incountry_points = sorted(self.incountry_points, key=lambda x: x.distance)
 
-        elif self.country_code_comparison:
-            closest = self.incountry_closest or {}
-
-        else:
-            closest = self.absolute_closest or {}
-
-        return jsonify({
-            'unit': self.unit,
-            'closest': closest,
+        data = {
+            'absolute': self.absolute_closest,
+            'incountry': self.incountry_points,
             'points': self.points,
-        })
+            'unit': self.unit,
+        }
+
+        if self.backwards_compatible:
+            if self.country_code_comparison:
+                try:
+                    closest = self.incountry_points[0]
+                except IndexError:
+                    closest = {}
+            else:
+                closest = self.absolute_closest
+
+            data.update({'closest': closest})
+
+        return jsonify(data)
 
     def calculate_distance(self, id_, ll, country_code=None):
 
@@ -338,8 +370,7 @@ class FlaskGeographyResponse:
             country_code is not None and
             country_code == self.cf_headers['country_code']
         ):
-            if not self.incountry_closest or distance.is_closer(self.incountry_closest):
-                self.incountry_closest = distance
+            self.incountry_points.append(distance)
 
 
 @dataclass
