@@ -10,6 +10,7 @@ import boto3
 from flask import Flask, request, Response, render_template
 from slugify import slugify
 
+from application.lib.logs import CWLogs
 from application.utils import random_string
 
 
@@ -33,10 +34,14 @@ class Flask11tyServerless:
     app: Flask = None
     lambda_client = None
     _data: typing.Dict = None
+    _funcs: typing.List = None
+    _logview_path: str = None
 
-    def __init__(self, app: Flask = None, *, file: typing.Union[str, io.IOBase] = None):
+    def __init__(self, app: Flask = None, *, file: typing.Union[str, io.IOBase] = None, logview_path: str = None):
 
         self._data = {}
+        self._funcs = []
+        self.logview_path = logview_path
 
         if app:
             self.init_app(app, file=file)
@@ -60,6 +65,23 @@ class Flask11tyServerless:
 
         if file is not None:
             self.process_routes_from_file(file)
+
+    @property
+    def logview_path(self):
+        if self._logview_path is None:
+            if self.app is None:
+                raise ValueError('Flask11tyServerless is not fully initialized')
+
+            self._logview_path = self.app.config.get('ELEVENTY_LOGVIEW_PATH', 'logviewer')
+
+        return self._logview_path
+
+    @logview_path.setter
+    def logview_path(self, value):
+        if value is not None and not isinstance(value, str):
+            raise ValueError('logview_path must be a string')
+
+        self._logview_path = value
 
     def process_routes_from_file(self, file: typing.Union[str, io.IOBase], *, encoding: str = None):
         """Process a JSON file of routes to create them within Flask"""
@@ -85,7 +107,39 @@ class Flask11tyServerless:
         for uri, target in routes.items():
             self.create_route(
                 uri,
-                target)
+                target,
+            )
+            self.create_logview_route(
+                target,
+            )
+
+    def create_logview_route(self, target):
+        """Create a log viewer route for the target Lambda function"""
+
+        try:
+            # arn:aws:lambda:<region>:<acct-id>:function:<name>[:<version>]
+            funcname = target.split(':')[6]
+        except IndexError:
+            self.app.logger.info(f'Cannot setup logview route for {target}')
+            return
+
+        if funcname in self._funcs:
+            return
+
+        self._funcs.append(funcname)
+
+        def show_logs(**kwargs):
+            return render_template(
+                'logviewer.html',
+                funcname=funcname,
+                log=CWLogs(f'/aws/lambda/{funcname}'),
+            )
+
+        self.app.add_url_rule(
+            f'/{self.logview_path}/{funcname}',
+            f'routes-logview-{funcname}',
+            show_logs,
+        )
 
     def create_route(self, uri, target):
         """Create a single route within the Flask app"""

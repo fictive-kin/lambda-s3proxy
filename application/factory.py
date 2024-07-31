@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from datetime import datetime
 import json
 import os
 import logging
@@ -194,4 +195,9 @@ def _create_app(name, log_level=logging.WARN):
             return response
 
     app.logger.info(app.url_map)
+
+    @app.template_filter()
+    def ts_to_iso(timestamp):
+        return datetime.fromtimestamp(int(timestamp)).isoformat()
+
     return app

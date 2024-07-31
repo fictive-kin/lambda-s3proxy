@@ -1,0 +1,25 @@
+{% extends "_layouts/base.html" %}
+
+{% block title %}Logs for {{funcname}}{% endblock %}
+
+{% block content %}
+  <h1>Logs for {{funcname}}</h1>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Message</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in log.get(): %}
+        <tr>
+          <td>{{ (event['timestamp'] / 1000) | ts_to_iso }}</td>
+          <td><pre>{{ event['message'] }}</pre></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+{% endblock %}
