@@ -3,6 +3,7 @@
 from functools import cached_property
 import json
 import time
+import typing
 
 import boto3
 from botocore.exceptions import ClientError
@@ -29,6 +30,7 @@ class FlaskS3Proxy:
     _trailing_slash_redirection: bool = None
     _redirect_code: int = None
     _routes: list = None
+    _subroutes: typing.Dict[str, str] = None
     _locales: list = None
 
     def __init__(self, app, *, boto3_client=None, bucket=None, prefix=None, paths=None, **kwargs):
@@ -110,6 +112,21 @@ class FlaskS3Proxy:
         self._routes = value
 
     @property
+    def subroutes(self):
+        if self._subroutes is not None:
+            return self._subroutes
+
+        if self.app is None:
+            raise ValueError('FlaskS3Proxy is not fully initialized')
+
+        self._subroutes = str2json(self.app.config.get('S3PROXY_SUBROUTES'))
+        return self._subroutes
+
+    @subroutes.setter
+    def subroutes(self, value):
+        self._subroutes = value
+
+    @property
     def locales(self):
         if self._locales is not None:
             return self._locales
@@ -167,6 +184,8 @@ class FlaskS3Proxy:
         self.add_handled_routes(paths, **kwargs)
         # Add any configured paths to the handled routes
         self.add_handled_routes(self.routes, **kwargs)
+        # If subroutes are configured, add those:
+        self.setup_subroutes()
 
         @self.app.errorhandler(404)
         def page_not_found(error):
@@ -305,6 +324,45 @@ class FlaskS3Proxy:
             return abort(404)
 
         return None
+
+    def setup_subroutes(self, *, file=None, subroutes=None):
+        if file is not None:
+            try:
+                file_obj = self.get_file(file)
+                self.subroutes = json.loads(file_obj['Body'].read())
+                self.app.logger.info('Loaded subroutes from S3')
+
+            except ClientError as exc:
+                if exc.response['Error']['Code'] == 'NoSuchKey':
+                    self.app.logger.warning(
+                        f"Unable to instantiate sub-routes: {file} does not exist in S3")
+                    return
+
+                raise
+
+            except json.JSONDecodeError as exc:
+                self.app.logger.exception(exc)
+                return
+
+        if subroutes is not None:
+            if self.subroutes is None:
+                self.subroutes = {}
+
+            self.subroutes.update(subroutes)
+
+        if self.subroutes:
+            for route,bucket in self.subroutes.items():
+                prefix = route.split('/<path:url>')
+                self.app.logger.info(f'Instantiating sub-route: {route} -> {bucket}{prefix[0]}')
+
+                subroute_blueprint = FlaskS3ProxyBlueprint(
+                    self.app,
+                    prefix=prefix[0],
+                    paths=[route],
+                    bucket=bucket,
+                    fallback=self,
+                    methods=['GET', 'POST'],
+                )
 
     def setup_locales(self, *, file=None, locales=None, enable_auto_switch=None):
 
