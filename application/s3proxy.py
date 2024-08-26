@@ -27,6 +27,7 @@ class FlaskS3Proxy:
     app: Flask = None
     _bucket: str = None
     _prefix: str = None
+    _trailing_slash_only: bool = None
     _trailing_slash_redirection: bool = None
     _redirect_code: int = None
     _routes: list = None
@@ -142,6 +143,23 @@ class FlaskS3Proxy:
         self._locales = value
 
     @property
+    def trailing_slash_only(self):
+        if self._trailing_slash_only is not None:
+            return self._trailing_slash_only
+
+        if self.app is None:
+            raise ValueError('FlaskS3Proxy is not fully initialized')
+
+        self._trailing_slash_only = str2bool(
+            self.app.config.get('S3PROXY_TRAILING_SLASH_ONLY', True)
+        )
+        return self._trailing_slash_only
+
+    @trailing_slash_only.setter
+    def trailing_slash_only(self, value):
+        self._trailing_slash_only = bool(value)
+
+    @property
     def trailing_slash_redirection(self):
         if self._trailing_slash_redirection is not None:
             return self._trailing_slash_redirection
@@ -149,7 +167,9 @@ class FlaskS3Proxy:
         if self.app is None:
             raise ValueError('FlaskS3Proxy is not fully initialized')
 
-        self._trailing_slash_redirection = str2bool(self.app.config.get('S3PROXY_TRAILING_SLASH_REDIRECTION', True))
+        self._trailing_slash_redirection = str2bool(
+            self.app.config.get('S3PROXY_TRAILING_SLASH_REDIRECTION', True)
+        )
         return self._trailing_slash_redirection
 
     @trailing_slash_redirection.setter
@@ -250,22 +270,64 @@ class FlaskS3Proxy:
         if url is None:
             return self.retrieve('index.html')
 
-        if url.endswith('/'):
+        def retrieve_from_possibilities(
+            possibilities, *,
+            check_for_trailing_slash_path=None,
+        ):
+            for possible in possibilities:
+                self.app.logger.info(f'Checking for: {possible}')
+                response = self.retrieve(possible, abort_on_fail=False)
+                if response and getattr(response, 'status_code', None):
+                    return response
+
+            if check_for_trailing_slash_path is not None:
+                response = retrieve_from_possibilities((f'{check_for_trailing_slash_path}/index.html',))
+
+                if response is not None:
+                    return self.redirect_with_querystring(f'/{check_for_trailing_slash_path}/')
+
+            return None
+
+        has_trailing_slash = url.endswith('/')
+        check_for_trailing_slash_path = None
+
+        if not has_trailing_slash:
+            self.app.logger.warning(f'Requested URL has no trailing slash: {url}')
+
+            if self.trailing_slash_only:
+                # Check for:
+                # - /my-page
+                # - /my-page.html
+                possibilities = (url, f'{url}.html',)
+                check_for_trailing_slash_path = url
+
+            else:
+                # Check for:
+                # - /my-page
+                # - /my-page.html
+                # - /my-page/index.html
+                possibilities = (url, f'{url}/index.html', f'{url}.html',)
+
+        else:
+            self.app.logger.warning(f'Requested URL has trailing slash: {url}')
             if self.trailing_slash_redirection:
                 return self.redirect_with_querystring(f'/{url[:-1]}')
+
             else:
                 url = url[:-1]
 
-        # Check for:
-        # - /my-page
-        # - /my-page.html
-        # - /my-page/index.html
-        for possible in (url, f'{url}/index.html', f'{url}.html'):
-            response = self.retrieve(possible, abort_on_fail=False)
-            if response and getattr(response, 'status_code', None):
-                return response
+            # Check for:
+            # - /my-page
+            # - /my-page.html
+            # - /my-page/index.html
+            possibilities = (url, f'{url}/index.html', f'{url}.html',)
 
-        return abort(404)
+        response = retrieve_from_possibilities(
+            possibilities,
+            check_for_trailing_slash_path=check_for_trailing_slash_path,
+        )
+
+        return abort(404) if response is None else response
 
     def redirect_with_querystring(self, target, *, code=None):
         if request.query_string:
