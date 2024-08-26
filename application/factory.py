@@ -152,6 +152,9 @@ def _create_app(name, log_level=logging.WARN):
 
     @app.before_request
     def clear_trailing():
+        if not app.config.get('TRAILING_SLASH_REDIRECTION', True):
+            return
+
         rp = request.path
 
         for path in app.config.PATHS_TO_LEAVE_TRAILING_SLASH:
