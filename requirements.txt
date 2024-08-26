@@ -13,6 +13,7 @@ python-slugify
 pytz
 requests
 sentry_sdk[flask]
+setuptools
 stripe
 tqdm
 Werkzeug
