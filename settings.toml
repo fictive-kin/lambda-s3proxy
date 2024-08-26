@@ -1,8 +1,14 @@
 
 [default]
 
+# If needed to ensure that all redirects use a certain hostname, set this appropriately:
+# DOMAIN_NAME = "my-example.com"
+
 # Affects response headers
 ADD_CACHE_HEADERS = true
+
+# If false, disables the Flask before_request trailing slash redirection handling
+TRAILING_SLASH_REDIRECTION = true
 
 # Sets the special endpoint to return the browser's location via CloudFront's geoip headers
 # This requires that the API Gateway is behind a _real_ CloudFront distro. If not set,
@@ -25,6 +31,7 @@ REDIRECTS_DEFAULT_STATUS_CODE = 302
 # False to only handle explicitly defined redirects
 REDIRECTS_HANDLE_TRAILING_SLASH = true
 
+# The location of various control files within the S3 bucket
 S3_REDIRECTS_FILE = 'redirects.json'
 S3_AUTHORIZER_FILE = 'authorizations.json'
 S3_ELEVENTY_FILE = '11ty-serverless.json'
@@ -32,6 +39,9 @@ S3_LOCALES_FILE = 'locales.json'
 
 # Status code to use for redirects generated from FlaskS3Proxy
 S3PROXY_REDIRECT_CODE = 302
+
+# True if FlaskS3Proxy should not serve index.html paths without a trailing slash
+S3PROXY_TRAILING_SLASH_ONLY = false
 
 # True if FlaskS3Proxy should redirect `<path>/` to `<path>` before attempting to check S3
 S3PROXY_TRAILING_SLASH_REDIRECTION = true
@@ -48,6 +58,11 @@ S3PROXY_TRAILING_SLASH_REDIRECTION = true
 # Locales that are handled by S3Proxy localization. These correspond to path prefixes in
 # the S3 bucket.
 # S3PROXY_LOCALES = ["de", "fr", "it", "es"]
+
+# A dictionary of routes and buckets that can be used in department-upload-permission
+# specific circumstances (among other uses). Any path prior to the `<path:url>` will be
+# used as a prefix to the file in it's S3 bucket.
+# S3PROXY_SUBROUTES = {"/wp-content/uploads/<path:url>" = "my-wp-backup-bucket"}
 
 # To set a generic authentication, do so here, using a base64 encoded username:password
 #AUTHORIZER_ROUTES = {"/" = "<base64-user-pass>"}
