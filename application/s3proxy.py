@@ -292,7 +292,7 @@ class FlaskS3Proxy:
         check_for_trailing_slash_path = None
 
         if not has_trailing_slash:
-            self.app.logger.warning(f'Requested URL has no trailing slash: {url}')
+            self.app.logger.debug(f'Requested URL has no trailing slash: {url}')
 
             if self.trailing_slash_only:
                 # Check for:
@@ -309,7 +309,7 @@ class FlaskS3Proxy:
                 possibilities = (url, f'{url}/index.html', f'{url}.html',)
 
         else:
-            self.app.logger.warning(f'Requested URL has trailing slash: {url}')
+            self.app.logger.debug(f'Requested URL has trailing slash: {url}')
             if self.trailing_slash_redirection:
                 return self.redirect_with_querystring(f'/{url[:-1]}')
 
@@ -379,7 +379,7 @@ class FlaskS3Proxy:
             return response
 
         except Exception as exc:  # pylint: disable=broad-except
-            self.app.logger.warning('Unable to open: {}/{}: {}'.format(self.bucket, s3_url, exc))
+            self.app.logger.info('Unable to open: {}/{}: {}'.format(self.bucket, s3_url, exc))
             pass
 
         if abort_on_fail:
@@ -488,7 +488,7 @@ class FlaskS3Proxy:
 
                     if desired_locale and desired_locale in self.locales:
                         if request.path in switchable_paths:
-                            self.app.logger.warning(
+                            self.app.logger.info(
                                 f'Redirecting due to user cookie: {request.path} -> /{desired_locale}')
                             return self.redirect_with_querystring(f'/{desired_locale}', code=303)
 

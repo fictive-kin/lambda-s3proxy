@@ -125,6 +125,8 @@ class FlaskJSONRedirects:
         handle_trailing_slash = handle_trailing_slash if handle_trailing_slash is not None else self.handle_trailing_slash
         status_code = int(status_code) if status_code is not None else self.default_status_code
 
+        self.app.logger.debug(f'Setting up redirect: {uri} -> {target}')
+
         redirect_id = f'redirects-{slugify(uri)}'
         if redirect_id in self._data:
             redirect_id = f'{redirect_id}-{random_string(10)}'
