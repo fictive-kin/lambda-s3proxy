@@ -7,7 +7,11 @@ from flask import Flask, redirect
 from sentry_sdk import capture_exception
 from slugify import slugify
 
-from application.utils import random_string, forced_host_redirect, str2bool
+from application.utils import (
+    forced_host_redirect,
+    random_string,
+    str2bool,
+)
 
 
 class FlaskJSONRedirects:
@@ -51,11 +55,20 @@ class FlaskJSONRedirects:
         if self.app is None:
             raise ValueError('FlaskJSONRedirects is not fully initialized')
 
-        self._default_status_code = int(self.app.config.get('REDIRECTS_DEFAULT_STATUS_CODE', 302))
+        value = int(self.app.config.get('REDIRECTS_DEFAULT_STATUS_CODE', 302))
+        if 300 < value < 400:
+            self.app.logger.warning(
+                f'Ignoring provided redirect code for being outside of range: {value}'
+            )
+            value = 302
+
+        self._default_status_code = value
         return self._default_status_code
 
     @default_status_code.setter
     def default_status_code(self, value):
+        if 300 < int(value) < 400:
+            raise ValueError(f'Redirect code value is outside of range: {int(value)}')
         self._default_status_code = int(value)
 
     @property

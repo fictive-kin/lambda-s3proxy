@@ -184,11 +184,20 @@ class FlaskS3Proxy:
         if self.app is None:
             raise ValueError('FlaskS3Proxy is not fully initialized')
 
-        self._redirect_code = int(self.app.config.get('S3PROXY_REDIRECT_CODE', 302))
+        value = int(self.app.config.get('S3PROXY_REDIRECT_CODE', 302))
+        if not (300 < value < 400):
+            self.app.logger.warning(
+                f'Ignoring provided redirect code for being outside of range: {value}'
+            )
+            value = 302
+
+        self._redirect_code = value
         return self._redirect_code
 
     @redirect_code.setter
     def redirect_code(self, value):
+        if 300 < int(value) < 400:
+            raise ValueError(f'Redirect code value is outside of range: {int(value)}')
         self._redirect_code = int(value)
 
     def init_app(self, app, *, bucket=None, prefix=None, paths=None, **kwargs):
