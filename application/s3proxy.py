@@ -360,7 +360,22 @@ class FlaskS3Proxy:
         try:
             s3_obj = self.get_file(s3_url)
 
-            if 'ContentLength' not in s3_obj or int(s3_obj['ContentLength']) > OVERFLOW_SIZE:
+            if 'Body' not in s3_obj:
+                self.app.logger.info(f'No body was returned from S3 for: {s3_url}')
+                return None
+
+            contents = s3_obj['Body'].read()
+
+            if 'ContentLength' not in s3_obj:
+                content_length = len(contents)
+            else:
+                content_length = int(s3_obj['ContentLength'])
+
+            if content_length == 0 and s3_url in ('soap', 'soap/', 'soap.html', 'soap/index.html',):
+                self.app.logger.info('Guarding against S3 soap endpoint')
+                return None
+
+            if content_length > OVERFLOW_SIZE:
                 # URL only works for 60 seconds
                 url = self._client.generate_presigned_url('get_object',
                           Params={
@@ -369,13 +384,12 @@ class FlaskS3Proxy:
                           },
                           ExpiresIn=60)
 
-                self.app.logger.info('Redirecting to S3 contents via signed URL')
+                self.app.logger.warning('Redirecting to S3 contents via signed URL')
                 # This cannot redirect with the other status codes because it's an oversize page
                 # and the URL will be different on each request. Therefore we use: "303 See Other"
                 return redirect(url, 303)
 
             self.app.logger.info('Returning S3 contents')
-            contents = s3_obj['Body'].read()
             response = Response(response=contents)
             if 'ContentType' in s3_obj:
                 response.headers['Content-Type'] = str(s3_obj['ContentType'])
