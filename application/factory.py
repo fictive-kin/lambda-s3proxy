@@ -156,6 +156,7 @@ def _create_app(name, log_level=logging.WARN):
             return
 
         rp = request.path
+        rq = request.query_string.decode('utf-8') if request.query_string else None
 
         for path in app.config.PATHS_TO_LEAVE_TRAILING_SLASH:
             if path.search(rp):
@@ -163,7 +164,7 @@ def _create_app(name, log_level=logging.WARN):
 
         if rp != '/' and rp.endswith('/'):
             return forced_host_redirect(
-                rp[:-1],
+                rp[:-1] + (f'?{rq}' if rq else ''),
                 code=app.config.get('REDIRECTS_DEFAULT_STATUS_CODE', 302),
             )
 
