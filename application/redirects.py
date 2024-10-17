@@ -3,7 +3,11 @@ import io
 import json
 import typing
 
-from flask import Flask, redirect
+from flask import (
+    Flask,
+    redirect,
+    request,
+)
 from sentry_sdk import capture_exception
 from slugify import slugify
 
@@ -20,6 +24,7 @@ class FlaskJSONRedirects:
     app: Flask = None
     _default_status_code: int = None
     _handle_trailing_slash: bool = None
+    _include_query_args_in_all: bool = None
     _data: typing.Dict = None
 
     def __init__(self, app: Flask = None, *, file: typing.Union[str, io.IOBase] = None):
@@ -85,6 +90,21 @@ class FlaskJSONRedirects:
     @handle_trailing_slash.setter
     def handle_trailing_slash(self, value):
         self._handle_trailing_slash = bool(value)
+
+    @property
+    def include_query_args_in_all(self):
+        if self._include_query_args_in_all is not None:
+            return self._include_query_args_in_all
+
+        if self.app is None:
+            raise ValueError('FlaskJSONRedirects is not fully initialized')
+
+        self._include_query_args_in_all = str2bool(self.app.config.get('REDIRECTS_INCLUDE_QUERY_ARGS_IN_ALL', False))
+        return self._include_query_args_in_all
+
+    @include_query_args_in_all.setter
+    def include_query_args_in_all(self, value):
+        self._include_query_args_in_all = bool(value)
 
     def process_redirects_from_file(self, file: typing.Union[str, io.IOBase], *, encoding: str = None):
         """Process a JSON file of redirects to create them within Flask"""
@@ -163,9 +183,21 @@ class FlaskJSONRedirects:
 
         def redirect_func(**kwargs):
             url = self._data[redirect_id].format(**kwargs)
-            if url.startswith('http:') or url.startswith('https:'):
-                return redirect(url, code=status_code)
 
-            return forced_host_redirect(url, code=status_code)
+            if url.startswith('http:') or url.startswith('https:'):
+                return redirect(
+                    add_query_args(url) if self.include_query_args_in_all else url,
+                    code=status_code,
+                )
+
+            return forced_host_redirect(
+                add_query_args(url),
+                code=status_code,
+            )
 
         return redirect_func
+
+
+def add_query_args(url):
+    rq = request.query_string.decode('utf-8') if request.query_string else None
+    return url + (f'?{rq}' if rq else '')

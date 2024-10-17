@@ -31,6 +31,11 @@ REDIRECTS_DEFAULT_STATUS_CODE = 302
 # False to only handle explicitly defined redirects
 REDIRECTS_HANDLE_TRAILING_SLASH = true
 
+# True if FlaskJSONRedirects should include the query string in any redirects returned,
+# including those that are FQDN. The query string is always included for relative
+# redirects. Default: False
+REDIRECTS_INCLUDE_QUERY_ARGS_IN_ALL = false
+
 # The location of various control files within the S3 bucket
 S3_REDIRECTS_FILE = 'redirects.json'
 S3_AUTHORIZER_FILE = 'authorizations.json'
