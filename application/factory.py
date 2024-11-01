@@ -188,13 +188,16 @@ def _create_app(name, log_level=logging.WARN):
                 return response
 
             content_type = response.headers.get('Content-Type')
-            if 'text' in content_type or 'application' in content_type:
-                return response
 
-            if not response.headers.get('Cache-Control'):
-                response.headers['Cache-Control'] = 'public,max-age=2592000,s-maxage=2592000,immutable'
-            if not response.headers.get('Vary'):
-                response.headers['Vary'] = 'Accept-Encoding,Origin,Access-Control-Request-Headers,Access-Control-Request-Method'
+            try:
+                if response.is_long_cacheable:
+                    if not response.headers.get('Cache-Control'):
+                        response.headers['Cache-Control'] = 'public,max-age=2592000,s-maxage=2592000,immutable'
+                    if not response.headers.get('Vary'):
+                        response.headers['Vary'] = 'Accept-Encoding,Origin,Access-Control-Request-Headers,Access-Control-Request-Method'
+            except AttributeError as exc:
+                if app.debug:
+                    app.logger.exception(exc)
 
             return response
 

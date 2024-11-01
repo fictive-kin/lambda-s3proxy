@@ -391,6 +391,7 @@ class FlaskS3Proxy:
 
             self.app.logger.info('Returning S3 contents')
             response = Response(response=contents)
+            setattr(response, 'is_long_cacheable', url.startswith('static/'))
             if 'ContentType' in s3_obj:
                 response.headers['Content-Type'] = str(s3_obj['ContentType'])
             if 'CacheControl' in s3_obj:
