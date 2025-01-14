@@ -119,19 +119,23 @@ def _create_app(name, log_level=logging.WARN):
         enable_auto_switch=['/'],
     )
 
-    paths = []
-    paths_to_leave_trailing_slash = app.config.get('PATHS_TO_LEAVE_TRAILING_SLASH', [])
-    if not isinstance(paths_to_leave_trailing_slash, list):
-        try:
-            paths_to_leave_trailing_slash = json.loads(paths_to_leave_trailing_slash)
-        except json.JSONDecodeError as exc:
-            app.exception(exc)
-            paths_to_leave_trailing_slash = []
+    def compile_re_paths(value):
 
-    for path in paths_to_leave_trailing_slash:
-        paths.append(re.compile(rf'{path}'))
+        paths = []
+        if not isinstance(value, list):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as exc:
+                app.exception(exc)
+                value = []
 
-    app.config.PATHS_TO_LEAVE_TRAILING_SLASH = paths
+        for path in value:
+            paths.append(re.compile(rf'{path}'))
+
+        return paths
+
+    app.config.PATHS_TO_LEAVE_TRAILING_SLASH = compile_re_paths(app.config.get('PATHS_TO_LEAVE_TRAILING_SLASH', []))
+    app.config.PATTERNS_TO_404 = compile_re_paths(app.config.get('PATTERNS_TO_404', []))
 
     def is_allowed_origin():
         if app.allowed_origins:
@@ -149,6 +153,15 @@ def _create_app(name, log_level=logging.WARN):
                 return False
 
         return True
+
+    @app.before_request
+    def block_config_patterns():
+        rp = request.path
+
+        for path in app.config.PATTERNS_TO_404:
+            if path.search(rp):
+                app.logger.debug(f'Forcing a 404 for {rp}')
+                return abort(404)
 
     @app.before_request
     def clear_trailing():
@@ -190,7 +203,7 @@ def _create_app(name, log_level=logging.WARN):
             content_type = response.headers.get('Content-Type')
 
             try:
-                if response.is_long_cacheable:
+                if hasattr(response, 'is_long_cacheable') and response.is_long_cacheable:
                     if not response.headers.get('Cache-Control'):
                         response.headers['Cache-Control'] = 'public,max-age=2592000,s-maxage=2592000,immutable'
                     if not response.headers.get('Vary'):

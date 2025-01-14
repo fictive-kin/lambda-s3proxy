@@ -85,3 +85,7 @@ CSP_UPGRADE_INSECURE_REQUESTS = true
 PATHS_TO_LEAVE_TRAILING_SLASH = [
     "^/preview/",
 ]
+
+PATTERNS_TO_404 = [
+    ".map$",
+]
