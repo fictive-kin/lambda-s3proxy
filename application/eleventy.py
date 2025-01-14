@@ -1,10 +1,12 @@
 
+from datetime import datetime, timezone
 import functools
 import io
 import json
 import os
 import re
 import typing
+from uuid import uuid4
 
 import boto3
 from flask import Flask, request, Response, render_template
@@ -159,8 +161,9 @@ class Flask11tyServerless:
         """Return the route function with the appropriate response for a Flask routing rule"""
 
         def invoke_func(**kwargs):
+            self.app.logger.debug(f'Running lambda function for path: {request.path}')
             upstream_payload = json.dumps(
-                sanitize_headers(request.environ['lambda.event']),
+                sanitize_headers(request.environ.get('lambda.event', fake_lambda_event())),
                 cls=LambdaMessageEncoder,
             )
             upstream_response = self.lambda_client.invoke(
@@ -193,7 +196,15 @@ class Flask11tyServerless:
 
             return Response(**resp_kwargs)
 
-        return invoke_func
+        def wrapped_invoke_func(**kwargs):
+            # This is an attempt to circumvent an initial bad load of the preview function
+            # The real solution would be to resolve the bad initial load within the preview
+            response = invoke_func(**kwargs)
+            if request.path.startswith('/preview/') and 200 <= response.status_code < 300:
+                return invoke_func(**kwargs)
+            return response
+
+        return wrapped_invoke_func
 
 
 def invoked_function_error_wrapper(upstream_payload, response_metadata, response_payload):
@@ -232,3 +243,57 @@ def sanitize_headers(event_payload):
     event_payload['multiValueHeaders'] = multi_headers
 
     return event_payload
+
+
+def fake_lambda_event():
+    now = datetime.now(timezone.utc)
+    api_id = random_string(10)
+
+    return {
+        "body": request.get_data(),
+        "headers": dict(request.headers),
+        "httpMethod": request.method,
+        "isBase64Encoded": False,
+        "multiValueHeaders": { k: [v] for k,v in request.headers.items() },
+        "multiValueQueryStringParameters": { k: [v] for k,v in request.args.items() } if request.args else None,
+        "path": request.path,
+        "pathParameters": {
+            "proxy": request.path,
+        },
+        "queryStringParameters": dict(request.args) if request.args else None,
+        "requestContext": {
+            "accountId": "123456789123",
+            "apiId": api_id,
+            "deploymentId": random_string(6),
+            "domainName": f"{api_id}.execute-api.us-east-1.amazonaws.com",
+            "domainPrefix": api_id,
+            "extendedRequestId": "EYwubFMkIAMEhnA=",
+            "httpMethod": request.method,
+            "identity": {
+                "accessKey": None,
+                "accountId": None,
+                "apiKey": None,
+                "apiKeyId": None,
+                "caller": None,
+                "cognitoAuthenticationProvider": None,
+                "cognitoAuthenticationType": None,
+                "cognitoIdentityId": None,
+                "cognitoIdentityPoolId": None,
+                "principalOrgId": None,
+                "sourceIp": request.remote_addr,
+                "user": None,
+                "userAgent": request.headers.get('User-Agent', 'Unknown'),
+                "userArn": None,
+            },
+            "path": request.path,
+            "protocol": "HTTP/1.1",
+            "requestId": uuid4(),
+            "requestTime": now.strftime("%d/%b/%Y:%H:%M:%S %:z"),
+            "requestTimeEpoch": int(now.timestamp()),
+            "resourceId": random_string(6),
+            "resourcePath": "/{proxy+}",
+            "stage": "qa",
+        },
+        "resource": "/{proxy+}",
+        "stageVariables": None,
+    }
