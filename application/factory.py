@@ -13,15 +13,16 @@ from flask_cors.core import probably_regex, try_match_any_pattern
 from flask_csp import CSP
 from sentry_sdk.integrations.flask import FlaskIntegration
 
-from application import stripe
 from application.exceptions import setup_sentry
 from application.extensions import (
     Flask11tyServerless,
+    # FlaskAPIGatewayOverflowExtension,
     FlaskGeography,
     FlaskGradualSwitchoverProxy,
     FlaskJSONAuthorizer,
     FlaskJSONRedirects,
     FlaskS3Proxy,
+    stripe,
 )
 from application.utils import forced_host_redirect, init_extension
 
@@ -104,7 +105,8 @@ def _create_app(name, log_level=logging.WARN):
                 FlaskIntegration(),
             ],
             environment=app.config["ENV_FOR_DYNACONF"],
-            request_bodies="always",
+            #:wq
+            # request_bodies="always",
         )
 
     logging.getLogger("boto3").setLevel(
@@ -117,7 +119,8 @@ def _create_app(name, log_level=logging.WARN):
         app.config.get("SENTRY_LOG_LEVEL", logging.CRITICAL)
     )
 
-    stripe.init_app(app)
+    if app.config.get("STRIPE_ENABLED", False):
+        stripe.init_app(app)
 
     app.extensions["cors"] = CORS(
         app,
@@ -131,12 +134,19 @@ def _create_app(name, log_level=logging.WARN):
         supports_credentials=True,
     )
     app.extensions["csp"] = CSP(app)
+    # app.extensions["overflow"] = FlaskAPIGatewayOverflowExtension(app=app)
 
-    if app.config.get("SWITCHOVER_DOMAIN") and app.config.get("SWITCHOVER_IPS"):
+    switchover_percentage = int(app.config.get("SWITCHOVER_PERCENTAGE_ON_NEW", 100))
+    if (
+        switchover_percentage < 100
+        and app.config.get("SWITCHOVER_DOMAIN")
+        and app.config.get("SWITCHOVER_IPS")
+    ):
         app.extensions["switchover_proxy"] = FlaskGradualSwitchoverProxy(
             app.config.get("SWITCHOVER_DOMAIN", ""),
             app.config.get("SWITCHOVER_IPS", []),
-            percentage_on_new=app.config.get("SWITCHOVER_PERCENTAGE_ON_NEW", 100),
+            percentage_on_new=switchover_percentage,
+            bots_on_new=app.config.get("SWITCHOVER_BOTS_ON_NEW"),
         )
 
     app.extensions["s3_proxy"] = FlaskS3Proxy(
@@ -167,6 +177,7 @@ def _create_app(name, log_level=logging.WARN):
     def compile_re_paths(key):
 
         value = app.config.get(key, [])
+        app.logger.debug(f"{key}: {value}")
         paths = []
         if not isinstance(value, list):
             try:
@@ -178,7 +189,8 @@ def _create_app(name, log_level=logging.WARN):
         for path in value:
             paths.append(re.compile(rf"{path}"))
 
-        setattr(app.config, key, paths)
+        app.logger.debug(f"  -> changing to: {paths}")
+        app.config[key] = paths
 
     compile_re_paths("PATHS_TO_LEAVE_TRAILING_SLASH")
     compile_re_paths("PATTERNS_TO_404")

@@ -1,7 +1,8 @@
 import typing as t
+import logging
 from random import randint
 
-from flask import request, Response
+from flask import current_app, request, Response
 from subnet import IPv4Address, IPv6Address
 from user_agents import parse
 
@@ -32,13 +33,16 @@ def headers2dict(headers) -> t.Dict[str, str]:
 class FlaskGradualSwitchoverProxy:
     fronting_proxy: FrontingProxy = None  # type: ignore
     percentage_on_new: int = None  # type: ignore
+    bots_on_new: t.Optional[bool] = None
     _cookie_name: t.Optional[str] = None
 
     def __init__(
         self,
         domain_name: str,
         ips: t.List[IPv4Address | IPv6Address | str],
+        *,
         percentage_on_new: t.Optional[int] = None,
+        bots_on_new: t.Optional[bool] = None,
         cookie_name: t.Optional[str] = None,
     ):
         if not domain_name or not ips:
@@ -48,6 +52,7 @@ class FlaskGradualSwitchoverProxy:
 
         self.fronting_proxy = FrontingProxy(domain_name, ips)
         self.percentage_on_new = percentage_on_new or 100
+        self.bots_on_new = bots_on_new
         self.cookie_name = cookie_name
 
     @property
@@ -60,15 +65,25 @@ class FlaskGradualSwitchoverProxy:
         """Sets the name of the cookie"""
         self._cookie_name = value
 
-    def selector(self, new: t.Callable, url: str) -> Response:
+    @property
+    def logger(self) -> logging.Logger:
+        """Returns a logger"""
+        try:
+            return current_app.logger
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return logging.getLogger("switchover-proxy")
+
+    def selector(self, new: t.Callable, url: t.Optional[str] = None) -> Response:
         """Determine if we should use the new view func provider or the old"""
 
         if self.percentage_on_new >= 100:
             return new(url)
 
-        user_agent = parse(request.headers.get("User-Agent", ""))
-        if user_agent.is_bot():
-            return self.proxy_it(url)
+        if self.bots_on_new is not None:
+            user_agent = parse(request.headers.get("User-Agent", ""))
+            if user_agent.is_bot:
+                self.logger.debug("request is a bot")
+                return new(url) if self.bots_on_new else self.proxy_it(url)
 
         probability = request.cookies.get(self.cookie_name, randint(1, 100), type=int)
         resp = new(url) if probability < self.percentage_on_new else self.proxy_it(url)
@@ -77,6 +92,7 @@ class FlaskGradualSwitchoverProxy:
         return resp
 
     def proxy_it(self, url: t.Optional[str] = None) -> Response:
+        self.logger.debug(f"Using old site for: {url or '/'}")
         method = getattr(self.fronting_proxy, request.method.lower())
         req = method(
             url,
@@ -90,49 +106,6 @@ class FlaskGradualSwitchoverProxy:
         content_type = req.headers.get("Content-Type")
         headers = headers2dict(req.headers)
 
-        # if self.overflow_bucket is not None and len(content) > self.overflow_size:
-
-        #    self.logger.debug('Saving to S3, as the response was huge')
-
-        #    # the response would be bigger than overflow_size, so instead of trying to serve it,
-        #    # we'll put the resulting body on S3, and redirect to a (temporary, signed) URL
-        #    # this is especially useful because API Gateway has a body size limitation, and
-        #    # some APIs serve *huge* blobs of JSON
-
-        #    # UUID filename (same suffix as original request if possible)
-        #    u = urlparse(target_url)
-        #    if '.' in u.path:
-        #        filename = str(uuid4()) + '.' + u.path.split('.')[-1]
-        #    else:
-        #        filename = str(uuid4())
-
-        #    s3 = boto3.resource('s3')
-        #    s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
-
-        #    bucket = s3.Bucket(self.overflow_bucket)
-
-        #    # actually put it in the bucket. beware that boto is really noisy for this in debug log level
-        #    # and we don't need the s3.Object that is returned by `put_bucket`.
-        #    bucket.put_object(
-        #        Key=filename,
-        #        Body=content,
-        #        ACL='authenticated-read',
-        #        ContentType=content_type
-        #    )
-
-        #    # URL only works for 60 seconds
-        #    url = s3_client.generate_presigned_url(
-        #        'get_object',
-        #        Params = {
-        #            'Bucket': self.overflow_bucket,
-        #            'Key': filename
-        #        },
-        #        ExpiresIn=CACHE_TTL)
-
-        #    # "see other"
-        #    return redirect(url, 303)
-
-        # otherwise, just serve it normally
         resp = Response(content, headers=headers, content_type=content_type)
         resp.status_code = req.status_code
         return resp

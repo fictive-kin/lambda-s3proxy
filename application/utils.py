@@ -54,10 +54,17 @@ def forced_relative_redirect(url, **kwargs):
 def _redirect(url, **kwargs):
     url = quote_plus(url, safe="/:?=&")
     body = f"""
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<!doctype html>
+<html>
+<head>
 <title>Redirecting...</title>
+<meta http-equiv="Refresh" content="1;url={url}" />
+</head>
+<body>
 <h1>Redirecting...</h1>
-<p>You should be redirected automatically to target URL: <a href="{url}">{url}</a>.  If not click the link.
+<p>You should be redirected automatically to target URL: <a href="{url}">{url}</a>.  If not click the link.</p>
+</body>
+</html>
     """
 
     if "code" in kwargs and "status" not in kwargs:
