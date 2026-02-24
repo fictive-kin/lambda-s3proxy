@@ -14,7 +14,9 @@ pytz
 requests
 sentry_sdk[flask]
 setuptools
+slipmatio-user-agents
 stripe
+subnet-utils
 tqdm
 Werkzeug
 zappa

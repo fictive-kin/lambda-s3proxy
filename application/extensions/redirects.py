@@ -128,7 +128,8 @@ class FlaskJSONRedirects:
     def process_redirects(self, redirects: typing.Dict):
         """Process a dict of redirects to create them within Flask"""
 
-        for uri, data in redirects.items():
+        for uri in sorted(redirects.keys()):
+            data = redirects[uri]
             try:
                 if isinstance(data, str):
                     target = data

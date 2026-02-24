@@ -34,7 +34,7 @@ REDIRECTS_HANDLE_TRAILING_SLASH = true
 # True if FlaskJSONRedirects should include the query string in any redirects returned,
 # including those that are FQDN. The query string is always included for relative
 # redirects. Default: False
-REDIRECTS_INCLUDE_QUERY_ARGS_IN_ALL = false
+REDIRECTS_INCLUDE_QUERY_ARGS_IN_ALL = true
 
 # The location of various control files within the S3 bucket
 S3_REDIRECTS_FILE = 'redirects.json'
@@ -69,9 +69,25 @@ S3PROXY_TRAILING_SLASH_REDIRECTION = true
 # used as a prefix to the file in it's S3 bucket.
 # S3PROXY_SUBROUTES = {"/wp-content/uploads/<path:url>" = "my-wp-backup-bucket"}
 
+# When invoking the preview function, often the first run of the function will return
+# incorrect results, thus this allows for an immediate second load, that resolves it
+ELEVENTY_BAD_LOAD_WRAPPER_HACK = false
+
+# The first path segment of the URL to the serverless function log review functionality
+ELEVENTY_LOGVIEW_PATH = "__logviewer"
+
+# The first path segment to the preview function, required to be able to perform a reload
+# as part of the BAD_LOAD_WRAPPER_HACK functionality
+ELEVENTY_PREVIEW_PATH_BASE = "__preview"
+
 # To set a generic authentication, do so here, using a base64 encoded username:password
 #AUTHORIZER_ROUTES = {"/" = "<base64-user-pass>"}
 AUTHORIZER_PATHS_WITHOUT_AUTH = ["/static"]
+
+# If the preview function is returning a bad load on first attempt, set this to true
+# which forces a secondary request to fire immediately after the first to circumvent
+# the problem
+# BAD_LOAD_WRAPPER_HACK = true
 
 # Default CSP policy that we want in place
 CSP_DEFAULT_SRC = [
@@ -82,8 +98,10 @@ CSP_DEFAULT_SRC = [
 ]
 CSP_UPGRADE_INSECURE_REQUESTS = true
 
+# Remeber to include the path used as ELEVENTY_PREVIEW_PATH_BASE above
 PATHS_TO_LEAVE_TRAILING_SLASH = [
     "^/preview/",
+    "^/__preview/",
 ]
 
 PATTERNS_TO_404 = [

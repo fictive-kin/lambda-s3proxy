@@ -2,51 +2,60 @@
 
 from datetime import datetime
 import json
-import os
 import logging
-import random
 import re
-import string
 import time
 
-import botocore
 from dynaconf import FlaskDynaconf
-from flask import Flask, abort, request, redirect, Response, jsonify
+from flask import Flask, abort, request
 from flask_cors import CORS
-from flask_cors.core import probably_regex, try_match_any
+from flask_cors.core import probably_regex, try_match_any_pattern
 from flask_csp import CSP
-from slugify import slugify
 from sentry_sdk.integrations.flask import FlaskIntegration
 
 from application import stripe
 from application.exceptions import setup_sentry
-from application.eleventy import Flask11tyServerless, LambdaMessageEncoder
-from application.authorizer import FlaskJSONAuthorizer
-from application.redirects import FlaskJSONRedirects
-from application.s3proxy import FlaskS3Proxy
-from application.geography import FlaskGeography
+from application.extensions import (
+    Flask11tyServerless,
+    FlaskGeography,
+    FlaskGradualSwitchoverProxy,
+    FlaskJSONAuthorizer,
+    FlaskJSONRedirects,
+    FlaskS3Proxy,
+)
 from application.utils import forced_host_redirect, init_extension
 
 
 def origins_list_to_regex(app, origins):
-    logging.info(f'Original origins list: {origins}')
-    if not isinstance(origins, (list, set, tuple,)):
-        if isinstance(origins, str) and origins.startswith('[') and origins.endswith(']'):
+    logging.info(f"Original origins list: {origins}")
+    if not isinstance(
+        origins,
+        (
+            list,
+            set,
+            tuple,
+        ),
+    ):
+        if (
+            isinstance(origins, str)
+            and origins.startswith("[")
+            and origins.endswith("]")
+        ):
             try:
                 origins = json.loads(origins)
             except json.JSONDecodeError as exc:
                 app.logger.exception(exc)
-                origins = ['.*']
+                origins = [".*"]
         else:
             origins = [origins]
 
     regex_list = []
     for string in origins:
-        if not string.startswith('http://') and not string.startswith('https://'):
-            string = f'https://{string}'
+        if not string.startswith("http://") and not string.startswith("https://"):
+            string = f"https://{string}"
 
         if probably_regex(string):
-            regex_list.append(re.compile(rf'{string}'))
+            regex_list.append(re.compile(rf"{string}"))
         else:
             regex_list.append(string)
 
@@ -65,11 +74,15 @@ def create_app(name, log_level=logging.WARN):
             logging.exception(exc)
 
             if tries >= 5:
-                logging.critical('Number of allowed app instantiation retries has been exceeded.')
+                logging.critical(
+                    "Number of allowed app instantiation retries has been exceeded."
+                )
                 raise exc
 
             app = None
-            time.sleep(2)  # wait 2 secs before retrying in case it was a transient network error
+            time.sleep(
+                2
+            )  # wait 2 secs before retrying in case it was a transient network error
 
     return app
 
@@ -94,62 +107,98 @@ def _create_app(name, log_level=logging.WARN):
             request_bodies="always",
         )
 
+    logging.getLogger("boto3").setLevel(
+        app.config.get("BOTO3_LOG_LEVEL", logging.CRITICAL)
+    )
+    logging.getLogger("botocore").setLevel(
+        app.config.get("BOTOCORE_LOG_LEVEL", logging.CRITICAL)
+    )
+    logging.getLogger("sentry").setLevel(
+        app.config.get("SENTRY_LOG_LEVEL", logging.CRITICAL)
+    )
+
     stripe.init_app(app)
 
-    app.allowed_origins = origins_list_to_regex(app, app.config.get('ALLOWED_ORIGINS', ['.*']))
-    CORS(app, origins=app.allowed_origins, supports_credentials=True)
-    CSP(app)
+    app.extensions["cors"] = CORS(
+        app,
+        origins=origins_list_to_regex(
+            app,
+            app.config.get(
+                "ALLOWED_ORIGINS",
+                [".*"],
+            ),
+        ),
+        supports_credentials=True,
+    )
+    app.extensions["csp"] = CSP(app)
 
-    logging.getLogger('boto3').setLevel(app.config.get('BOTO3_LOG_LEVEL', logging.CRITICAL))
-    logging.getLogger('botocore').setLevel(app.config.get('BOTOCORE_LOG_LEVEL', logging.CRITICAL))
-    logging.getLogger('sentry').setLevel(app.config.get('SENTRY_LOG_LEVEL', logging.CRITICAL))
+    if app.config.get("SWITCHOVER_DOMAIN") and app.config.get("SWITCHOVER_IPS"):
+        app.extensions["switchover_proxy"] = FlaskGradualSwitchoverProxy(
+            app.config.get("SWITCHOVER_DOMAIN", ""),
+            app.config.get("SWITCHOVER_IPS", []),
+            percentage_on_new=app.config.get("SWITCHOVER_PERCENTAGE_ON_NEW", 100),
+        )
 
-    app.s3_proxy = FlaskS3Proxy(app)
-    app.geography = FlaskGeography(app)
+    app.extensions["s3_proxy"] = FlaskS3Proxy(
+        app, switchover_proxy=app.extensions.get("switchover_proxy")
+    )
+    app.extensions["geography"] = FlaskGeography(app)
 
-    app.authorizer = init_extension(app, FlaskJSONAuthorizer, 'S3_AUTHORIZER_FILE')
-    app.eleventy = init_extension(app, Flask11tyServerless, 'S3_ELEVENTY_FILE')
-    app.redirects = init_extension(app, FlaskJSONRedirects, 'S3_REDIRECTS_FILE')
+    app.extensions["authorizer"] = init_extension(
+        app, FlaskJSONAuthorizer, "S3_AUTHORIZER_FILE"
+    )
+    app.extensions["eleventy"] = init_extension(
+        app, Flask11tyServerless, "S3_ELEVENTY_FILE"
+    )
+    app.extensions["redirects"] = init_extension(
+        app, FlaskJSONRedirects, "S3_REDIRECTS_FILE"
+    )
 
     # Due to the redirects possibly using these routes, we are adding these after having
     # instantiated all the redirects. If not for that, we could have used a config value
-    app.s3_proxy.add_handled_routes(['/', '/<path:url>'], methods=['GET', 'POST'])
-    app.s3_proxy.setup_locales(
-        file=app.config.get('S3_LOCALES_FILE', None),
-        enable_auto_switch=['/'],
+    app.extensions["s3_proxy"].add_handled_routes(
+        ["/", "/<path:url>"], methods=["GET", "POST"]
+    )
+    app.extensions["s3_proxy"].setup_locales(
+        file=app.config.get("S3_LOCALES_FILE", None),
+        enable_auto_switch=["/"],
     )
 
-    def compile_re_paths(value):
+    def compile_re_paths(key):
 
+        value = app.config.get(key, [])
         paths = []
         if not isinstance(value, list):
             try:
                 value = json.loads(value)
             except json.JSONDecodeError as exc:
-                app.exception(exc)
+                app.logger.exception(exc)
                 value = []
 
         for path in value:
-            paths.append(re.compile(rf'{path}'))
+            paths.append(re.compile(rf"{path}"))
 
-        return paths
+        setattr(app.config, key, paths)
 
-    app.config.PATHS_TO_LEAVE_TRAILING_SLASH = compile_re_paths(app.config.get('PATHS_TO_LEAVE_TRAILING_SLASH', []))
-    app.config.PATTERNS_TO_404 = compile_re_paths(app.config.get('PATTERNS_TO_404', []))
+    compile_re_paths("PATHS_TO_LEAVE_TRAILING_SLASH")
+    compile_re_paths("PATTERNS_TO_404")
 
     def is_allowed_origin():
-        if app.allowed_origins:
-            origin = request.headers.get('Origin')
+        if app.extensions["cors"].options["origins"]:
+            origin = request.headers.get("Origin")
 
             if not origin:
-                app.logger.debug('Origin header not provided')
+                app.logger.debug("Origin header not provided")
                 return False
 
-            if (
-                    not try_match_any(origin, app.allowed_origins) and
-                    not try_match_any(f'{origin}/', app.allowed_origins)
+            if not try_match_any_pattern(
+                origin, app.extensions["cors"].options["origins"], caseSensitive=False
+            ) and not try_match_any_pattern(
+                f"{origin}/",
+                app.extensions["cors"].options["origins"],
+                caseSensitive=False,
             ):
-                app.logger.debug('Origin header not in allowed list: {}'.format(origin))
+                app.logger.debug("Origin header not in allowed list: {}".format(origin))
                 return False
 
         return True
@@ -158,56 +207,63 @@ def _create_app(name, log_level=logging.WARN):
     def block_config_patterns():
         rp = request.path
 
-        for path in app.config.PATTERNS_TO_404:
+        for path in app.config.get("PATTERNS_TO_404", []):
             if path.search(rp):
-                app.logger.debug(f'Forcing a 404 for {rp}')
+                app.logger.debug(f"Forcing a 404 for {rp}")
                 return abort(404)
 
     @app.before_request
     def clear_trailing():
-        if not app.config.get('TRAILING_SLASH_REDIRECTION', True):
+        if not app.config.get("TRAILING_SLASH_REDIRECTION", True):
             return
 
         rp = request.path
-        rq = request.query_string.decode('utf-8') if request.query_string else None
+        rq = request.query_string.decode("utf-8") if request.query_string else None
 
-        for path in app.config.PATHS_TO_LEAVE_TRAILING_SLASH:
+        for path in app.config.get("PATHS_TO_LEAVE_TRAILING_SLASH", []):
             if path.search(rp):
                 return
 
-        if rp != '/' and rp.endswith('/'):
+        if rp != "/" and rp.endswith("/"):
             return forced_host_redirect(
-                rp[:-1] + (f'?{rq}' if rq else ''),
-                code=app.config.get('REDIRECTS_DEFAULT_STATUS_CODE', 302),
+                rp[:-1] + (f"?{rq}" if rq else ""),
+                code=app.config.get("REDIRECTS_DEFAULT_STATUS_CODE", 302),
             )
 
     @app.before_request
     def chk_shortcircuit():
-        if request.method == 'OPTION' and app.config['SHORTCIRCUIT_OPTIONS']:
-            app.logger.debug('Shortcircuiting OPTIONS request')
+        if request.method == "OPTION" and app.config["SHORTCIRCUIT_OPTIONS"]:
+            app.logger.debug("Shortcircuiting OPTIONS request")
             if is_allowed_origin():
-                return '', 200
+                return "", 200
             return abort(403)
 
         # If we get here, we're neither shortcircuiting OPTIONS requests, let the view
         # deal with it directly.
         return None
 
-    if app.config['ADD_CACHE_HEADERS']:
+    if app.config["ADD_CACHE_HEADERS"]:
 
         @app.after_request
         def add_cache_headers(response):
             if response.status_code != 200:
                 return response
 
-            content_type = response.headers.get('Content-Type')
+            content_type = response.headers.get("Content-Type")
 
             try:
-                if hasattr(response, 'is_long_cacheable') and response.is_long_cacheable:
-                    if not response.headers.get('Cache-Control'):
-                        response.headers['Cache-Control'] = 'public,max-age=2592000,s-maxage=2592000,immutable'
-                    if not response.headers.get('Vary'):
-                        response.headers['Vary'] = 'Accept-Encoding,Origin,Access-Control-Request-Headers,Access-Control-Request-Method'
+                if (
+                    hasattr(response, "is_long_cacheable")
+                    and response.is_long_cacheable
+                ):
+                    if not response.headers.get("Cache-Control"):
+                        response.headers["Cache-Control"] = (
+                            "public,max-age=2592000,s-maxage=2592000,immutable"
+                        )
+                    if not response.headers.get("Vary"):
+                        response.headers["Vary"] = (
+                            "Accept-Encoding,Origin,Access-Control-Request-Headers,Access-Control-Request-Method"
+                        )
             except AttributeError as exc:
                 if app.debug:
                     app.logger.exception(exc)

@@ -18,10 +18,9 @@ class CWLogs:
 
     def get(self, since=None, until=None):
         if until is None:
-            until = datetime.utcnow().timestamp()
+            until = datetime.now().timestamp()
 
         if since is None:
-            print(datetime.utcnow())
             delta = timedelta(minutes=30)
             since = (datetime.now() - delta).timestamp()
 
