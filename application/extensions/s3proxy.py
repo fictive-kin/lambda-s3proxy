@@ -6,13 +6,13 @@ import time
 import typing as t
 
 import boto3
+from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 from flask import Flask, abort, Blueprint, Response, redirect, request
 import pytz
 from slugify import slugify
 
-from application.utils import forced_host_redirect, str2bool, str2json
-
+from ..utils import forced_host_redirect, str2bool, str2json
 from .crossover import FlaskGradualSwitchoverProxy
 
 
@@ -25,7 +25,7 @@ HTTP_HEADER_DATE_FORMAT = "%a, %d %b %Y %H:%M:%S GMT"
 
 
 class FlaskS3Proxy:
-    _client = None
+    _client: BaseClient = None  # type: ignore
     app: Flask = None  # type: ignore
     _bucket: t.Optional[str] = None
     _prefix: t.Optional[str] = None
@@ -41,7 +41,7 @@ class FlaskS3Proxy:
         self,
         app: t.Optional[Flask],
         *,
-        boto3_client=None,
+        boto3_client: t.Optional[BaseClient] = None,
         bucket: t.Optional[str] = None,
         prefix: t.Optional[str] = None,
         paths=None,
@@ -84,14 +84,14 @@ class FlaskS3Proxy:
             pass
 
     @property
-    def client(self):
+    def client(self) -> BaseClient:
         if self._client is None:
             self._client = boto3.client("s3")
         return self._client
 
     @client.setter
-    def client(self, value):
-        self._client = value
+    def client(self, value: BaseClient | None):
+        self._client = value  # type: ignore
 
     @property
     def bucket(self) -> str:
@@ -628,17 +628,17 @@ class FlaskS3Proxy:
 
 class FlaskS3ProxyBlueprint(FlaskS3Proxy):
     bp: Blueprint = None  # type: ignore
-    fallback: FlaskS3Proxy = None  # type: ignore
+    fallback: t.Optional[FlaskS3Proxy] = None
 
     def __init__(
         self,
-        app,
+        app: Flask,
         *,
-        boto3_client=None,
-        bucket=None,
-        prefix=None,
+        boto3_client: t.Optional[BaseClient] = None,
+        bucket: t.Optional[str] = None,
+        prefix: t.Optional[str] = None,
         paths=None,
-        fallback=None,
+        fallback: t.Optional[FlaskS3Proxy] = None,
         **kwargs,
     ):
         # Intentionally not providing app to parent init

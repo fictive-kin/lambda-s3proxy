@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 
 from dataclasses import dataclass
-from enum import Enum
 import json
 import typing as t
 from urllib.parse import unquote
 
 import botocore.exceptions
 from flask import (
-    Blueprint,
     Flask,
     abort,
     current_app,
@@ -22,9 +20,10 @@ try:
 
     HAS_HAVERSINE = True
 except ImportError:
+    haversine = False
     HAS_HAVERSINE = False
 
-from .utils import str2bool
+from ..utils import str2bool
 
 
 DESIRED_HEADERS: t.Dict[str, str] = {
@@ -423,6 +422,9 @@ class FlaskGeographyResponse:
         return jsonify(data)
 
     def calculate_distance(self, id_, ll, country_code=None):
+
+        if not callable(haversine):
+            return
 
         distance = LocationDistance(
             id=id_,

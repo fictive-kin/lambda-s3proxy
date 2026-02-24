@@ -2,31 +2,31 @@ from datetime import datetime, timezone
 import functools
 import io
 import json
-import os
 import re
-import typing
+import typing as t
 from uuid import uuid4
 
 import boto3
+from botocore.client import BaseClient
 from flask import Flask, request, Response, render_template
 from slugify import slugify
 
-from application.lib.logs import CWLogs
-from application.utils import random_string
+from ..lib.logs import CWLogs
+from ..utils import random_string
 
 
 class LambdaMessageEncoder(json.JSONEncoder):
-    def default(self, obj):
+    def default(self, obj: t.Any):  # type: ignore
         if (
             not type(obj) in [int, float, complex, dict, tuple, list, bool]
             and obj is not None
         ):
             return str(obj)
 
-        return super().default(self, obj)
+        return super().default(self, obj)  # type: ignore
 
 
-def eleventy2flask(uri):
+def eleventy2flask(uri: str) -> str:
     """Changes an 11ty dynamic route spec to a Flask route spec"""
 
     return re.sub(r":([a-z0-9\.\-\_]+)", r"<path:\1>", uri, re.IGNORECASE)
@@ -35,19 +35,19 @@ def eleventy2flask(uri):
 class Flask11tyServerless:
     """A Flask extension to handle a routing to 11ty Serverless dynamic functions"""
 
-    app: Flask = None
-    lambda_client = None
-    _data: typing.Dict = None
-    _funcs: typing.List = None
-    _logview_path: str = None
-    _bad_load_wrapper_hack: bool = None
+    app: Flask = None  # type: ignore
+    lambda_client: BaseClient = None  # type: ignore
+    _data: t.Dict[str, str] = None  # type: ignore
+    _funcs: t.List[str] = None  # type: ignore
+    _logview_path: t.Optional[str] = None
+    _bad_load_wrapper_hack: t.Optional[bool] = None
 
     def __init__(
         self,
-        app: Flask = None,
+        app: t.Optional[Flask] = None,
         *,
-        file: typing.Union[str, io.IOBase] = None,
-        logview_path: str = None,
+        file: t.Optional[str | io.IOBase] = None,
+        logview_path: t.Optional[str] = None,
     ):
 
         self._data = {}
@@ -57,7 +57,7 @@ class Flask11tyServerless:
         if app:
             self.init_app(app, file=file)
 
-    def init_app(self, app: Flask, *, file: typing.Union[str, io.IOBase] = None):
+    def init_app(self, app: Flask, *, file: t.Optional[str | io.IOBase] = None):
         """
         Initializes a Flask application for using the integration.
         Currently, the model class supports a single app configuration only.
@@ -78,7 +78,7 @@ class Flask11tyServerless:
             self.process_routes_from_file(file)
 
     @property
-    def logview_path(self):
+    def logview_path(self) -> str:
         if self._logview_path is None:
             if self.app is None:
                 raise ValueError("Flask11tyServerless is not fully initialized")
@@ -87,17 +87,17 @@ class Flask11tyServerless:
                 "ELEVENTY_LOGVIEW_PATH", "__logviewer"
             )
 
-        return self._logview_path
+        return self._logview_path  # type: ignore
 
     @logview_path.setter
-    def logview_path(self, value):
+    def logview_path(self, value: str | None):
         if value is not None and not isinstance(value, str):
             raise ValueError("logview_path must be a string")
 
         self._logview_path = value
 
     @property
-    def preview_path_base(self):
+    def preview_path_base(self) -> str:
         if self._preview_path_base is None:
             if self.app is None:
                 raise ValueError("Flask11tyServerless is not fully initialized")
@@ -106,17 +106,17 @@ class Flask11tyServerless:
                 "ELEVENTY_PREVIEW_PATH_BASE", "__preview"
             )
 
-        return self._preview_path_base
+        return self._preview_path_base  # type: ignore
 
     @preview_path_base.setter
-    def preview_path_base(self, value):
+    def preview_path_base(self, value: str | None):
         if value is not None and not isinstance(value, str):
             raise ValueError("preview_path_base must be a string")
 
         self._preview_path_base = value
 
     @property
-    def bad_load_wrapper_hack(self):
+    def bad_load_wrapper_hack(self) -> bool:
         if self._bad_load_wrapper_hack is None:
             if self.app is None:
                 raise ValueError("Flask11tyServerless is not fully initialized")
@@ -128,11 +128,11 @@ class Flask11tyServerless:
         return self._bad_load_wrapper_hack
 
     @bad_load_wrapper_hack.setter
-    def bad_load_wrapper_hack(self, value):
+    def bad_load_wrapper_hack(self, value: t.Any):
         self._bad_load_wrapper_hack = bool(value)
 
     def process_routes_from_file(
-        self, file: typing.Union[str, io.IOBase], *, encoding: str = None
+        self, file: str | io.IOBase, *, encoding: t.Optional[str] = None
     ):
         """Process a JSON file of routes to create them within Flask"""
 
@@ -151,7 +151,7 @@ class Flask11tyServerless:
         except (IOError, json.JSONDecodeError) as exc:
             self.app.logger.exception(exc)
 
-    def process_routes(self, routes: typing.Dict):
+    def process_routes(self, routes: t.Dict[str, str]):
         """Process a dict of routes to create within Flask"""
 
         for uri, target in routes.items():
@@ -163,7 +163,7 @@ class Flask11tyServerless:
                 target,
             )
 
-    def create_logview_route(self, target):
+    def create_logview_route(self, target: str):
         """Create a log viewer route for the target Lambda function"""
 
         try:
@@ -191,7 +191,7 @@ class Flask11tyServerless:
             show_logs,
         )
 
-    def create_route(self, uri, target):
+    def create_route(self, uri: str, target: str):
         """Create a single route within the Flask app"""
 
         route_id = f"routes-{slugify(uri)}"
@@ -202,12 +202,12 @@ class Flask11tyServerless:
         self.app.logger.info(f"URI: {uri}")
         self.app.add_url_rule(uri, route_id, self.handle_route(route_id))
 
-    def handle_route(self, route_id):
+    def handle_route(self, route_id: str) -> t.Callable:
         """Return the route function with the appropriate response for a Flask routing rule"""
 
         def invoke_func(**kwargs):
             self.app.logger.info(f"Running lambda function for path: {request.path}")
-            print(f'invoking preview for: {request.path}')
+            print(f"invoking preview for: {request.path}")
             upstream_payload = json.dumps(
                 sanitize_headers(
                     request.environ.get("lambda.event", fake_lambda_event())
@@ -248,7 +248,7 @@ class Flask11tyServerless:
             # This is an attempt to circumvent an initial bad load of the preview function
             # The real solution would be to resolve the bad initial load within the preview
 
-            print(f'invoking wrapped preview for: {request.path}')
+            print(f"invoking wrapped preview for: {request.path}")
             response = invoke_func(**kwargs)
             if (
                 request.path.startswith(f"/{self.preview_path_base}/")
@@ -261,10 +261,10 @@ class Flask11tyServerless:
 
 
 def invoked_function_error_wrapper(
-    upstream_payload, response_metadata, response_payload
-):
+    upstream_payload: t.Dict[str, t.Any], response_metadata: str, response_payload: str
+) -> Response:
 
-    kwargs = {
+    kwargs: t.Dict[str, t.Any] = {
         "response": response_payload if response_payload else response_metadata,
     }
     if request.args.get("include_payload") == "yes":
@@ -280,7 +280,7 @@ def invoked_function_error_wrapper(
     )
 
 
-def sanitize_headers(event_payload):
+def sanitize_headers(event_payload: t.Dict[str, t.Any]) -> t.Dict[str, t.Any]:
     headers = {}
     for k, v in event_payload.get("headers", {}).items():
         if "token" in k.lower() or "auth" in k.lower():
