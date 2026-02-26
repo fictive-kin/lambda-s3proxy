@@ -1,3 +1,5 @@
 /archive
 /zappa_settings.json
 /.venv
+/.secrets.toml
+

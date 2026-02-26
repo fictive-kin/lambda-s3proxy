@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from datetime import datetime
 import json
 import logging
@@ -17,6 +15,7 @@ from application.exceptions import setup_sentry
 from application.extensions import (
     Flask11tyServerless,
     # FlaskAPIGatewayOverflowExtension,
+    FlaskFormToEmail,
     FlaskGeography,
     FlaskGradualSwitchoverProxy,
     FlaskJSONAuthorizer,
@@ -81,9 +80,8 @@ def create_app(name, log_level=logging.WARN):
                 raise exc
 
             app = None
-            time.sleep(
-                2
-            )  # wait 2 secs before retrying in case it was a transient network error
+            # wait 2 secs before retrying in case it was a transient network error
+            time.sleep(2)
 
     return app
 
@@ -105,7 +103,6 @@ def _create_app(name, log_level=logging.WARN):
                 FlaskIntegration(),
             ],
             environment=app.config["ENV_FOR_DYNACONF"],
-            #:wq
             # request_bodies="always",
         )
 
@@ -163,6 +160,9 @@ def _create_app(name, log_level=logging.WARN):
     app.extensions["redirects"] = init_extension(
         app, FlaskJSONRedirects, "S3_REDIRECTS_FILE"
     )
+    app.extensions["mail"] = init_extension(app, FlaskFormToEmail, "S3_FORM2EMAIL_FILE")
+    if app.debug:
+        app.extensions["mail"].add_test("/form2email", recipient="jared@fictivekin.com")
 
     # Due to the redirects possibly using these routes, we are adding these after having
     # instantiated all the redirects. If not for that, we could have used a config value

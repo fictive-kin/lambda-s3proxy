@@ -96,10 +96,10 @@ def force_404():
 def init_extension(app, extension, filename_key):
     # Specifically not passing app to the initial init, since we'll don't want to double run it
     ext = extension()
+    config_obj = None
     if app.config.get(filename_key):
         try:
             config_obj = app.extensions["s3_proxy"].get_file(app.config[filename_key])
-            ext.init_app(app, file=config_obj["Body"])
         except botocore.exceptions.ClientError as exc:
             if exc.response["Error"]["Code"] == "NoSuchKey":
                 app.logger.warning(
@@ -112,5 +112,7 @@ def init_extension(app, extension, filename_key):
         app.add_url_rule(
             f"/{app.config[filename_key]}", f"{filename_key}-file-block", force_404
         )
+
+    ext.init_app(app, file=config_obj["Body"] if config_obj else None)
 
     return ext

@@ -1,6 +1,7 @@
 from .authorizer import FlaskJSONAuthorizer
 from .crossover import FlaskGradualSwitchoverProxy
 from .eleventy import Flask11tyServerless
+from .form2email import FlaskFormToEmail
 from .geography import FlaskGeography, FlaskGeographyResponse
 from .redirects import FlaskJSONRedirects
 from .s3proxy import FlaskS3Proxy, FlaskS3ProxyBlueprint
@@ -8,6 +9,7 @@ from .s3proxy import FlaskS3Proxy, FlaskS3ProxyBlueprint
 
 __all__ = [
     "Flask11tyServerless",
+    "FlaskFormToEmail",
     "FlaskGeography",
     "FlaskGeographyResponse",
     "FlaskGradualSwitchoverProxy",

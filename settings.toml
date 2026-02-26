@@ -41,6 +41,7 @@ S3_REDIRECTS_FILE = 'redirects.json'
 S3_AUTHORIZER_FILE = 'authorizations.json'
 S3_ELEVENTY_FILE = '11ty-serverless.json'
 S3_LOCALES_FILE = 'locales.json'
+S3_FORM2EMAIL_FILE = 'form-to-email.json'
 
 # Status code to use for redirects generated from FlaskS3Proxy
 S3PROXY_REDIRECT_CODE = 302
@@ -107,3 +108,31 @@ PATHS_TO_LEAVE_TRAILING_SLASH = [
 PATTERNS_TO_404 = [
     ".map$",
 ]
+
+# The SMTP configuration
+# MAIL_SERVER = "smtp.example.com"
+MAIL_PORT = 587
+MAIL_USE_TLS = true
+# MAIL_USERNAME = "user@example.com"
+# MAIL_PASSWORD = "password"
+
+# The default sending address to use as the from email address
+# MAIL_DEFAULT_SENDER = "noreply@example.com"
+
+# The default mail recipient when no other is specified in the routes below
+# MAIL_RECIPIENT = "someone@example.com"
+
+# A list of dictionaries that creates routes that send an email to the provided recipient
+# (or the default one set above) using the provided template (path to file, or template
+# string) that FlaskForm2Email will use to create processors for form submission handling
+# FORM2EMAIL_ROUTES = [
+#     {"route": "/form2email", "template": "email/simple.html", "recipient": "me@example.com"},
+# ]
+
+# The encryption key to use, should you wish the email payloads be encrypted
+# FORM2EMAIL_ENCRYPTION_KEY = """
+# -----BEGIN PGP PUBLIC KEY BLOCK-----
+# asdfasdfsdfasdf
+# ....
+# -----END PGP PUBLIC KEY BLOCK-----
+# """
