@@ -160,9 +160,15 @@ def _create_app(name, log_level=logging.WARN):
     app.extensions["redirects"] = init_extension(
         app, FlaskJSONRedirects, "S3_REDIRECTS_FILE"
     )
-    app.extensions["mail"] = init_extension(app, FlaskFormToEmail, "S3_FORM2EMAIL_FILE")
-    if app.debug:
-        app.extensions["mail"].add_test("/form2email", recipient="jared@fictivekin.com")
+
+    if app.config.get("FORMS_ENABLED") and app.config.get("MAIL_SERVER"):
+        app.extensions["mail"] = init_extension(
+            app, FlaskFormToEmail, "S3_FORM2EMAIL_FILE"
+        )
+        if app.debug:
+            app.extensions["mail"].add_test(
+                "/form2email", recipient="jared@fictivekin.com"
+            )
 
     # Due to the redirects possibly using these routes, we are adding these after having
     # instantiated all the redirects. If not for that, we could have used a config value

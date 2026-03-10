@@ -297,7 +297,7 @@ class FlaskFormToEmail:
             form_to_email,
             methods=["POST"],
         )
-        print(f"loaded: {route_url}")
+        self.app.logger.debug(f"loaded: {route_url}")
 
     def add_test(
         self, route: str = "/form2email", *, recipient: t.Optional[str] = None
