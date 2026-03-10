@@ -3,6 +3,7 @@ from email.utils import formataddr, parseaddr
 import io
 import json
 
+import click
 from botocore.exceptions import ClientError
 from flask import (
     Flask,
@@ -17,7 +18,12 @@ from jinja2.exceptions import TemplateNotFound
 from sentry_sdk import capture_exception
 from slugify import slugify
 
-from .encrypt import EncryptedMessage
+from .encrypt import (
+    detect_encryption_type,
+    decrypt_pgp_message,
+    decrypt_smime_message,
+    EncryptedMessage,
+)
 
 
 REQUIRED_CONFIG_KEYS = [
@@ -85,6 +91,8 @@ class FlaskFormToEmail:
 
         if app.config.get("FORM2EMAIL_ROUTES"):
             self.process_routes(app.config["FORM2EMAIL_ROUTES"])
+
+        self.register_cli(app)
 
     def process_routes_from_file(
         self, file: str | io.IOBase, *, encoding: t.Optional[str] = None
@@ -298,6 +306,83 @@ class FlaskFormToEmail:
             methods=["POST"],
         )
         self.app.logger.debug(f"loaded: {route_url}")
+
+    def register_cli(self, app: Flask):
+        """Register the ``flask form2email`` CLI command group on *app*."""
+
+        @app.cli.group("form2email")
+        def form2email_group():
+            """Form2Email management commands."""
+
+        @form2email_group.command("decrypt")
+        @click.argument("message", type=click.File("rb"), default="-")
+        @click.option(
+            "--key",
+            "-k",
+            "key_file",
+            type=click.Path(exists=True),
+            default=None,
+            help="Private key file (ASCII-armored PGP or PEM for S/MIME).",
+        )
+        @click.option(
+            "--cert",
+            "-c",
+            "cert_file",
+            type=click.Path(exists=True),
+            default=None,
+            help="Certificate file (required for S/MIME decryption).",
+        )
+        @click.option(
+            "--passphrase",
+            "-p",
+            default=None,
+            help="Passphrase for the private key.",
+        )
+        @click.option(
+            "--output",
+            "-o",
+            type=click.File("wb"),
+            default="-",
+            help="Output file (default: stdout).",
+        )
+        def decrypt_command(message, key_file, cert_file, passphrase, output):
+            """Decrypt an encrypted email message.
+
+            MESSAGE is a path to the .eml file, or - to read from stdin.
+            """
+
+            if not key_file and not cert_file:
+                raise click.ClickException("Either key or cert must be provided")
+
+            message_bytes = message.read()
+            enc_type = detect_encryption_type(message_bytes)
+
+            if enc_type is None:
+                raise click.ClickException(
+                    "Could not detect encryption type. Is this message encrypted?"
+                )
+
+            try:
+                if enc_type in ("pgp-mime", "pgp-inline"):
+                    with open(key_file, "r") as f:
+                        private_key = f.read()
+                    decrypted = decrypt_pgp_message(
+                        message_bytes, private_key, passphrase=passphrase
+                    )
+                else:  # smime
+                    if not cert_file:
+                        raise click.ClickException(
+                            "--cert is required for S/MIME decryption"
+                        )
+                    decrypted = decrypt_smime_message(
+                        message_bytes, key_file, cert_file, passphrase=passphrase
+                    )
+            except click.ClickException:
+                raise
+            except Exception as exc:
+                raise click.ClickException(str(exc)) from exc
+
+            output.write(decrypted)
 
     def add_test(
         self, route: str = "/form2email", *, recipient: t.Optional[str] = None

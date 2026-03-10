@@ -1,3 +1,7 @@
+import email as _email
+import os
+import subprocess
+import tempfile
 import typing as t
 import base64
 import logging
@@ -178,3 +182,126 @@ class SMIMEEncryptedMessage(EncryptedMessage):
 
         self.copy_transport_headers(inner, outer)
         return outer
+
+
+# ---------------------------------------------------------------------------
+# Decryption helpers
+# ---------------------------------------------------------------------------
+
+
+def detect_encryption_type(message_bytes: bytes) -> t.Optional[str]:
+    """Detect the encryption type of a raw email message.
+
+    Returns one of ``'pgp-mime'``, ``'pgp-inline'``, ``'smime'``, or ``None``
+    if no recognised encryption is found.
+    """
+    msg = _email.message_from_bytes(message_bytes)
+    ct = msg.get_content_type()
+
+    if ct == "multipart/encrypted":
+        if msg.get_param("protocol") == "application/pgp-encrypted":
+            return "pgp-mime"
+
+    elif ct == "application/pkcs7-mime":
+        if msg.get_param("smime-type") == "enveloped-data":
+            return "smime"
+
+    elif ct == "text/plain":
+        payload = msg.get_payload()
+        if isinstance(payload, str) and "-----BEGIN PGP MESSAGE-----" in payload:
+            return "pgp-inline"
+
+    return None
+
+
+def decrypt_pgp_message(
+    message_bytes: bytes,
+    private_key: str,
+    passphrase: t.Optional[str] = None,
+) -> bytes:
+    """Decrypt a PGP/MIME or PGP-inline encrypted email message.
+
+    Requires ``pgpy``: ``pip install pgpy``
+
+    :param message_bytes: Raw bytes of the email message.
+    :param private_key: ASCII-armored PGP private key.
+    :param passphrase: Passphrase to unlock the private key, if protected.
+    :returns: Decrypted content bytes (inner MIME message for PGP/MIME, or
+              plain text for inline).
+    :raises ValueError: If pgpy is unavailable or the message cannot be decrypted.
+    """
+    if not _HAS_PGP:
+        raise ValueError("pgpy is required for PGP decryption")
+
+    key, _ = pgpy.PGPKey.from_blob(private_key.strip())  # type: ignore
+
+    msg = _email.message_from_bytes(message_bytes)
+
+    if msg.get_content_type() == "multipart/encrypted":
+        # PGP/MIME — encrypted payload is in the application/octet-stream part
+        encrypted_payload = None
+        for part in msg.walk():
+            if part.get_content_type() == "application/octet-stream":
+                encrypted_payload = part.get_payload()
+                break
+
+        if encrypted_payload is None:
+            raise ValueError("No encrypted payload found in PGP/MIME message")
+
+        pgp_msg = pgpy.PGPMessage.from_blob(encrypted_payload)  # type: ignore
+    else:
+        # PGP inline — body IS the armored ciphertext
+        body = msg.get_payload()
+        if not isinstance(body, str) or "-----BEGIN PGP MESSAGE-----" not in body:
+            raise ValueError("No PGP encrypted content found in message")
+        pgp_msg = pgpy.PGPMessage.from_blob(body)  # type: ignore
+
+    if key.is_protected:
+        if not passphrase:
+            raise ValueError("Private key is passphrase-protected; supply --passphrase")
+        with key.unlock(passphrase):
+            decrypted = key.decrypt(pgp_msg)
+    else:
+        decrypted = key.decrypt(pgp_msg)
+
+    result = decrypted.message
+    return result if isinstance(result, bytes) else result.encode()
+
+
+def decrypt_smime_message(
+    message_bytes: bytes,
+    key_path: str,
+    cert_path: str,
+    passphrase: t.Optional[str] = None,
+) -> bytes:
+    """Decrypt an S/MIME encrypted email message using the system ``openssl`` binary.
+
+    :param message_bytes: Raw bytes of the email message.
+    :param key_path: Path to the recipient's PEM private key file.
+    :param cert_path: Path to the recipient's PEM certificate file.
+    :param passphrase: Passphrase for the private key, if protected.
+    :returns: Decrypted content bytes (the inner MIME message).
+    :raises ValueError: If ``openssl`` fails or is unavailable.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".eml", delete=False) as tmp:
+        tmp.write(message_bytes)
+        tmp_path = tmp.name
+
+    try:
+        cmd = [
+            "openssl", "smime", "-decrypt",
+            "-in", tmp_path,
+            "-inkey", key_path,
+            "-recip", cert_path,
+        ]
+        if passphrase:
+            cmd.extend(["-passin", f"pass:{passphrase}"])
+
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            raise ValueError(
+                f"S/MIME decryption failed: {result.stderr.decode().strip()}"
+            )
+        return result.stdout
+    finally:
+        os.unlink(tmp_path)

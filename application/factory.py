@@ -161,7 +161,7 @@ def _create_app(name, log_level=logging.WARN):
         app, FlaskJSONRedirects, "S3_REDIRECTS_FILE"
     )
 
-    if app.config.get("FORMS_ENABLED") and app.config.get("MAIL_SERVER"):
+    if app.config.get("MAIL_SERVER"):
         app.extensions["mail"] = init_extension(
             app, FlaskFormToEmail, "S3_FORM2EMAIL_FILE"
         )
