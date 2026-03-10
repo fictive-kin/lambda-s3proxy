@@ -52,7 +52,7 @@ def forced_relative_redirect(url, **kwargs):
 
 
 def _redirect(url, **kwargs):
-    url = quote_plus(url, safe="/:?=&")
+    url = quote_plus(url, safe="/:?=&#")
     body = f"""
 <!doctype html>
 <html>
