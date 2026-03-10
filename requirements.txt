@@ -6,7 +6,7 @@ dynaconf
 Flask
 cryptography
 Flask-Mail
-pgpy
+pgpy13
 flask-cors
 git+https://github.com/fictivekin/flask-csp.git#egg=flask-csp
 haversine
