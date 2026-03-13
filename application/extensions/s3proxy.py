@@ -12,7 +12,7 @@ from flask import Flask, abort, Blueprint, Response, redirect, request
 import pytz
 from slugify import slugify
 
-from ..utils import forced_host_redirect, str2bool, str2json
+from ..utils import add_no_cache, forced_host_redirect, str2bool, str2json
 from .crossover import FlaskGradualSwitchoverProxy
 
 
@@ -344,32 +344,33 @@ class FlaskS3Proxy:
             path, endpoint=slug, view_func=self._view_func(), **kwargs
         )
 
+    def retrieve_from_possibilities(
+        self,
+        possibilities,
+        *,
+        check_for_trailing_slash_path=None,
+    ):
+        for possible in possibilities:
+            self.app.logger.info(f"Checking for: {possible}")
+            response = self.retrieve(possible, abort_on_fail=False)
+            if response and getattr(response, "status_code", None):
+                return response
+
+        if check_for_trailing_slash_path is not None:
+            response = self.retrieve_from_possibilities(
+                (f"{check_for_trailing_slash_path}/index.html",)
+            )
+
+            if response is not None:
+                return self.redirect_with_querystring(
+                    f"/{check_for_trailing_slash_path}/"
+                )
+
+        return None
+
     def proxy_it(self, url=None):
         if url is None:
             return self.retrieve("index.html")
-
-        def retrieve_from_possibilities(
-            possibilities,
-            *,
-            check_for_trailing_slash_path=None,
-        ):
-            for possible in possibilities:
-                self.app.logger.info(f"Checking for: {possible}")
-                response = self.retrieve(possible, abort_on_fail=False)
-                if response and getattr(response, "status_code", None):
-                    return response
-
-            if check_for_trailing_slash_path is not None:
-                response = retrieve_from_possibilities(
-                    (f"{check_for_trailing_slash_path}/index.html",)
-                )
-
-                if response is not None:
-                    return self.redirect_with_querystring(
-                        f"/{check_for_trailing_slash_path}/"
-                    )
-
-            return None
 
         has_trailing_slash = url.endswith("/")
         check_for_trailing_slash_path = None
@@ -416,7 +417,7 @@ class FlaskS3Proxy:
                 f"{url}.html",
             )
 
-        response = retrieve_from_possibilities(
+        response = self.retrieve_from_possibilities(
             possibilities,
             check_for_trailing_slash_path=check_for_trailing_slash_path,
         )
@@ -481,7 +482,9 @@ class FlaskS3Proxy:
             setattr(response, "is_long_cacheable", url.startswith("static/"))
             if "ContentType" in s3_obj:
                 response.headers["Content-Type"] = str(s3_obj["ContentType"])
-            if "CacheControl" in s3_obj:
+            if hasattr(request, "is_protected_page") and request.is_protected_page:
+                response = add_no_cache(response)
+            elif "CacheControl" in s3_obj:
                 response.headers["Cache-Control"] = str(s3_obj["CacheControl"])
             if "Expires" in s3_obj:
                 response.headers["Expires"] = self.datetime_to_header(s3_obj["Expires"])

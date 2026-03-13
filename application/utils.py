@@ -89,6 +89,12 @@ def _redirect(url, **kwargs):
     return resp
 
 
+def add_no_cache(response: Response):
+    if not response.headers.get("Cache-Control"):
+        response.headers["Cache-Control"] = "no-store, no-cache, private, max-age=0"
+    return response
+
+
 def force_404():
     return abort(404)
 

@@ -3,10 +3,10 @@ import json
 import re
 import typing as t
 
-from flask import Flask, Response, request
+from flask import Flask, Response, abort, request
 from werkzeug.datastructures import Authorization
 
-from ..utils import str2json
+from ..utils import add_no_cache, str2json
 
 
 class FlaskJSONAuthorizer:
@@ -17,6 +17,7 @@ class FlaskJSONAuthorizer:
     _routes: t.Dict[str, str] = None  # type: ignore
     _simple: t.Dict[str, t.Dict[str, t.Any]] = None  # type: ignore
     _regexes: t.Dict[str, t.Dict[str, t.Any]] = None  # type: ignore
+    _forms: t.Dict[str, t.Dict[str, t.Any]] = None  # type: ignore
 
     def __init__(
         self, app: t.Optional[Flask] = None, *, file: t.Optional[str | io.IOBase] = None
@@ -51,6 +52,14 @@ class FlaskJSONAuthorizer:
             self.process_authorizations(self.routes)
 
         self.app.before_request(self.check_authorization)
+
+    @property
+    def s3proxy(self):
+        return self.app.extensions["s3_proxy"]
+
+    @property
+    def session(self):
+        return self.app.extensions["session"]
 
     @property
     def default_realm(self) -> str:
@@ -110,32 +119,26 @@ class FlaskJSONAuthorizer:
         for uri, data in authorizations.items():
             if isinstance(data, str):
                 auth = Authorization.from_header(f"Basic {data}")
-                username = getattr(auth, "username", None)
-                password = getattr(auth, "password", None)
-                realm = None
+                self.add_protected_route(
+                    uri,
+                    {
+                        "username": getattr(auth, "username", None),
+                        "password": getattr(auth, "password", None),
+                    },
+                )
+
+            elif data.get("username") or data.get("form"):
+                self.add_protected_route(uri, data)
 
             else:
-                username = data["username"]
-                password = data["password"]
-                realm = data.get("realm", None)
-
-            self.add_protected_route(uri, username, password, realm=realm)
+                self.app.logger.warning(f"Could not create a protected route for {uri}")
 
     def add_protected_route(
         self,
         uri: str,
-        username: str | None,
-        password: str | None,
-        *,
-        realm: t.Optional[str] = None,
+        auth_data: t.Dict[str, str | re.Pattern | None],
     ):
         """Create a single protected route within the Flask app"""
-
-        auth_data: t.Dict[str, str | re.Pattern | None] = {
-            "username": username,
-            "password": password,
-            "realm": realm if realm is not None else self.default_realm,
-        }
 
         if "*" in uri:
             auth_data.update({"pattern": re.compile(uri)})
@@ -143,9 +146,8 @@ class FlaskJSONAuthorizer:
 
         else:
             self._simple.update({uri: auth_data})
-
-            if uri[:-1] != "/":
-                self._simple.update({f"{uri}/": auth_data})
+            opposite = uri[:-1] if uri.endswith("/") else f"{uri}/"
+            self._simple.update({opposite: auth_data})
 
     def check_authorization(self):
         """Before request handler to check the authorization header"""
@@ -173,6 +175,72 @@ class FlaskJSONAuthorizer:
             # This means that we didn't have any protection rules setup for this route
             return
 
+        if self.s3proxy and data.get("form"):
+            # We can't retrieve a form, if the s3 proxy extension isn't setup
+            return self.form_authenticate(data)
+
+        else:
+            return self.basic_authenticate(data)
+
+    def form_authenticate(self, data):
+        if (
+            data.get("password")
+            and self.session.get("authorizer-password") == data["password"]
+        ):
+            setattr(request, "is_protected_page", True)
+            return
+
+        incorrect_password = False
+        if request.method.upper() == "POST":
+            if request.form.get("password") == data["password"]:
+                self.session.update({"authorizer-password": data["password"]})
+                setattr(request, "is_protected_page", True)
+                return
+            else:
+                incorrect_password = True
+
+        url = data["form"][1:] if data["form"].startswith("/") else data["form"]
+        if url.endswith(".html"):
+            possibilities = [url]
+        elif url.endswith("/"):
+            possibilities = [f"{url[:-1]}.html", f"{url}index.html"]
+        else:
+            possibilities = (
+                url,
+                f"{url}.html",
+                f"{url}/index.html",
+            )
+        response = self.s3proxy.retrieve_from_possibilities(possibilities)
+        if response is None:
+            abort(404)
+
+        response = add_no_cache(response)
+        return (
+            self.replace_message(
+                response, "<!-- ERROR_MESSAGE -->", data.get("error_password", "")
+            )
+            if incorrect_password
+            else response
+        )
+
+    def replace_message(
+        self, response: Response, needle: str, replace: str
+    ) -> Response:
+        if not needle or not replace:
+            return response
+
+        if response.mimetype and not response.mimetype.startswith("text"):
+            return response
+
+        data: str = (
+            response.data.decode()
+            if isinstance(response.data, bytes)
+            else response.data
+        )
+        response.data = data.replace(needle, replace)
+        return response
+
+    def basic_authenticate(self, data):
         auth = Authorization.from_header(request.headers.get("Authorization"))
         if auth is not None and auth.username is not None and auth.password is not None:
             if auth.username == data["username"] and auth.password == data["password"]:
@@ -182,5 +250,7 @@ class FlaskJSONAuthorizer:
         return Response(
             "Authorization is required",
             401,
-            {"WWW-Authenticate": f'Basic realm="{data["realm"]}"'},
+            {
+                "WWW-Authenticate": f'Basic realm="{data.get("realm") or self.default_realm}"'
+            },
         )

@@ -15,6 +15,7 @@ from application.exceptions import setup_sentry
 from application.extensions import (
     Flask11tyServerless,
     # FlaskAPIGatewayOverflowExtension,
+    FlaskEncryptedSession,
     FlaskFormToEmail,
     FlaskGeography,
     FlaskGradualSwitchoverProxy,
@@ -115,6 +116,8 @@ def _create_app(name, log_level=logging.WARN):
     logging.getLogger("sentry").setLevel(
         app.config.get("SENTRY_LOG_LEVEL", logging.CRITICAL)
     )
+
+    app.extensions["session"] = FlaskEncryptedSession(app)
 
     if app.config.get("STRIPE_ENABLED", False):
         stripe.init_app(app)
