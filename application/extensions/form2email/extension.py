@@ -3,6 +3,7 @@ from email.utils import formataddr, parseaddr
 import io
 import json
 
+import boto3
 import click
 from botocore.exceptions import ClientError
 from flask import (
@@ -34,6 +35,7 @@ REQUIRED_CONFIG_KEYS = [
 class FlaskFormToEmail:
     app: Flask = None  # type: ignore
     _mail: Mail = None  # type: ignore
+    _dynamodb: t.Any = None
     _encryption_key: t.Optional[str] = None
     _recipient: t.Optional[str] = None
     _sender: t.Optional[str] = None
@@ -137,6 +139,7 @@ class FlaskFormToEmail:
                     template=self.maybe_get_s3_file(item["template"]),
                     recipient=item.get("recipient"),
                     encryption_key=self.maybe_get_s3_file(item.get("encryption_key")),
+                    counter_key=item.get("counter_key"),
                 )
 
             except ClientError as exc:
@@ -154,6 +157,58 @@ class FlaskFormToEmail:
         if not self._mail:
             self._mail = Mail(self.app)
         return self._mail
+
+    @property
+    def dynamodb(self):
+        if not self._dynamodb:
+            self._dynamodb = boto3.resource("dynamodb")
+        return self._dynamodb
+
+    @property
+    def counter_table(self) -> t.Optional[str]:
+        return self.app.config.get("FORM2EMAIL_COUNTER_TABLE")
+
+    def increment_counter(self, counter_key: str) -> t.Optional[int]:
+        """Atomically increment the submission counter for *counter_key* in DynamoDB.
+
+        Returns the new counter value, or None if no counter table is configured
+        or if the operation fails.
+        """
+        if not self.counter_table:
+            return None
+
+        try:
+            table = self.dynamodb.Table(self.counter_table)
+            result = table.update_item(
+                Key={"id": counter_key},
+                UpdateExpression="ADD #count :one",
+                ExpressionAttributeNames={"#count": "count"},
+                ExpressionAttributeValues={":one": 1},
+                ReturnValues="UPDATED_NEW",
+            )
+            return int(result["Attributes"]["count"])
+        except Exception as exc:
+            self.app.logger.exception(exc)
+            capture_exception(exc)
+            return None
+
+    def decrement_counter(self, counter_key: str) -> None:
+        """Atomically decrement the submission counter for *counter_key*, rolling back a
+        previously incremented value after a send failure."""
+        if not self.counter_table:
+            return
+
+        try:
+            table = self.dynamodb.Table(self.counter_table)
+            table.update_item(
+                Key={"id": counter_key},
+                UpdateExpression="ADD #count :neg_one",
+                ExpressionAttributeNames={"#count": "count"},
+                ExpressionAttributeValues={":neg_one": -1},
+            )
+        except Exception as exc:
+            self.app.logger.exception(exc)
+            capture_exception(exc)
 
     @property
     def encryption_key(self) -> str | None:
@@ -184,8 +239,17 @@ class FlaskFormToEmail:
         else:
             self._sender = value
 
-    def send_template(self, template, *, reraise: bool = False, **kwargs) -> bool:
+    def send_template(
+        self,
+        template,
+        *,
+        reraise: bool = False,
+        submission_count: t.Optional[int] = None,
+        **kwargs,
+    ) -> bool:
         data: t.Dict[str, t.Any] = {k: v for k, v in request.form.items()}
+
+        data["submission_count"] = submission_count or "unknown"
 
         name = data.get("name", "Form Submitted")
         if "reply_to" not in kwargs and "email" in data:
@@ -200,23 +264,27 @@ class FlaskFormToEmail:
             )
         )
 
+        # If there is no preexisting field named "form", add the data as
+        # "form" to make it easily accessible
+        if "form" not in data:
+            data["form"] = data.copy()  # Use copy() to prevent recursion
+
         # The outer try/except is to protect both attempts to render the template.
         # Do not merge them down to one try/except block with the inner one that
         # handles TemplateNotFound.
         try:
-            # If there is no preexisting field named "form", add the data as
-            # "form" to make it easily accessible
-            if "form" not in data:
-                data["form"] = data.copy()  # Use copy() to prevent recursion
-
             try:
-                html = render_template(
+                rendered = render_template(
                     template,
                     **data,
                 )
-            except TemplateNotFound:
-                html = render_template_string(
-                    template,
+            except (AttributeError, TemplateNotFound):
+                rendered = render_template_string(
+                    (
+                        template.decode("utf-8")
+                        if isinstance(template, bytes)
+                        else template
+                    ),
                     **data,
                 )
         except Exception as exc:
@@ -231,11 +299,14 @@ class FlaskFormToEmail:
         # because when the kwarg is present, but empty, we want to
         # correctly fallback to using self.recipient
         recipient = kwargs.pop("recipient", None) or self.recipient
+        if "<body>" in rendered:
+            kwargs.update({"html": rendered})
+        else:
+            kwargs.update({"body": rendered})
 
         msg = self.message(
             sender=sender,
             recipients=[recipient],
-            html=html,
             **kwargs,
         )
         return self.send(msg, reraise=reraise)
@@ -267,6 +338,7 @@ class FlaskFormToEmail:
         template: t.Optional[str] = "email/simple.html",
         recipient: t.Optional[str] = None,
         encryption_key: t.Optional[str] = None,
+        counter_key: t.Optional[str] = None,
     ):
 
         self.app.logger.debug(f"Setting up form2email: {route_url}")
@@ -277,6 +349,8 @@ class FlaskFormToEmail:
 
         self._routes.add(route_url)
 
+        resolved_counter_key = counter_key or slugify(route_url)
+
         def form_to_email() -> t.Tuple[Response, int]:
             name = request.form.get("name", "").strip()
             email = request.form.get("email", "").strip()
@@ -284,20 +358,30 @@ class FlaskFormToEmail:
             if not name or not email:
                 return jsonify({"error": "name and email fields are required"}), 400
 
+            count = self.increment_counter(resolved_counter_key)
+
             try:
                 if not self.send_template(
                     template,
                     recipient=recipient,
                     encryption_key=encryption_key,
+                    submission_count=count,
                     reraise=True,
                 ):
+                    self.decrement_counter(resolved_counter_key)
                     return jsonify({"error": "Failed to send message"}), 500
 
             except Exception as exc:
+                self.decrement_counter(resolved_counter_key)
                 self.app.logger.exception(exc)
                 return jsonify({"error": f"Failed to send message: {exc}"}), 500
 
-            return jsonify({"message": "Your message has been sent"}), 200
+            response: t.Dict[str, t.Any] = {
+                "message": "Your message has been sent",
+                "submission_count": count or 0,
+            }
+
+            return jsonify(response), 200
 
         self.app.add_url_rule(
             route_url,
