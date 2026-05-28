@@ -13,7 +13,6 @@ import urllib3
 from requests.adapters import HTTPAdapter
 from subnet import ip_address, IPv4Address, IPv6Address
 
-
 # http.client.HTTPConnection.debuglevel = 5
 # urllib3.add_stderr_logger()
 
@@ -115,7 +114,7 @@ class FrontingProxy:
         return real_method(self._build_url(path), headers=headers, **kwargs)
 
 
-# proxy = FrontingProxy("bridgebio.com", ["141.193.213.20", "141.193.213.21"])
+# proxy = FrontingProxy("example.com", ["<old-ip-1>", "<old-ip-2>", ...])
 # resp = proxy.get(
 #    "/",
 #    headers={
@@ -123,12 +122,3 @@ class FrontingProxy:
 #    },
 # )
 # print(resp.content)
-
-# s = requests.Session()
-# s.mount('https://', FrontingAdapter(fronted_domain="bridgebio.com"))
-# r = s.get("https://141.193.213.21/", headers={
-# "Host": "bridgebio.com",
-# "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0",
-# })
-# print()
-# print(r.content)
