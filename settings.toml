@@ -124,10 +124,18 @@ MAIL_USE_TLS = true
 
 # A list of dictionaries that creates routes that send an email to the provided recipient
 # (or the default one set above) using the provided template (path to file, or template
-# string) that FlaskForm2Email will use to create processors for form submission handling
+# string) that FlaskForm2Email will use to create processors for form submission handling.
+# Each route may include an optional "counter_key" that overrides the default key used
+# to track submission counts in DynamoDB (defaults to the slugified route path).
 # FORM2EMAIL_ROUTES = [
-#     {"route": "/form2email", "template": "email/simple.html", "recipient": "me@example.com"},
+#     {"route": "/form2email", "template": "email/simple.html", "recipient": "me@example.com", "counter_key": "contact-form"},
 # ]
+
+# DynamoDB table name for storing per-route form submission counters.
+# The table must have a partition key named "id" (String).
+# When set, each successful submission atomically increments the counter and
+# returns the new value as "count" in the JSON response.
+# FORM2EMAIL_COUNTER_TABLE = "my-form-counters"
 
 # The encryption key to use, should you wish the email payloads be encrypted
 # FORM2EMAIL_ENCRYPTION_KEY = """
@@ -136,3 +144,5 @@ MAIL_USE_TLS = true
 # ....
 # -----END PGP PUBLIC KEY BLOCK-----
 # """
+
+ENCRYPTED_SESSION_KEY = "Tb0yo064FZaDXo4UgHqahlS0AoE99f5F00FJABh0FL8="

@@ -36,6 +36,7 @@ class FlaskFormToEmail:
     app: Flask = None  # type: ignore
     _mail: Mail = None  # type: ignore
     _dynamodb: t.Any = None
+    _counter_table_obj: t.Any = None
     _encryption_key: t.Optional[str] = None
     _recipient: t.Optional[str] = None
     _sender: t.Optional[str] = None
@@ -93,6 +94,9 @@ class FlaskFormToEmail:
 
         if app.config.get("FORM2EMAIL_ROUTES"):
             self.process_routes(app.config["FORM2EMAIL_ROUTES"])
+
+        if self.counter_table:
+            self._initiate_counter_table_creation()
 
         self.register_cli(app)
 
@@ -168,6 +172,34 @@ class FlaskFormToEmail:
     def counter_table(self) -> t.Optional[str]:
         return self.app.config.get("FORM2EMAIL_COUNTER_TABLE")
 
+    def _initiate_counter_table_creation(self) -> None:
+        """Fire-and-forget table creation at app init. Does not wait for the table
+        to become active; use _get_or_create_counter_table() at request time."""
+        try:
+            self.dynamodb.create_table(
+                TableName=self.counter_table,
+                KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
+                AttributeDefinitions=[{"AttributeName": "id", "AttributeType": "S"}],
+                BillingMode="PAY_PER_REQUEST",
+            )
+            self.app.logger.info(
+                "Creating DynamoDB counter table: %s", self.counter_table
+            )
+        except self.dynamodb.meta.client.exceptions.ResourceInUseException:
+            pass  # table already exists
+        except Exception as exc:
+            self.app.logger.exception(exc)
+            capture_exception(exc)
+
+    def _get_counter_table(self) -> t.Any:
+        if self._counter_table_obj is not None:
+            return self._counter_table_obj
+
+        table = self.dynamodb.Table(self.counter_table)
+        table.wait_until_exists()
+        self._counter_table_obj = table
+        return table
+
     def increment_counter(self, counter_key: str) -> t.Optional[int]:
         """Atomically increment the submission counter for *counter_key* in DynamoDB.
 
@@ -178,7 +210,7 @@ class FlaskFormToEmail:
             return None
 
         try:
-            table = self.dynamodb.Table(self.counter_table)
+            table = self._get_counter_table()
             result = table.update_item(
                 Key={"id": counter_key},
                 UpdateExpression="ADD #count :one",
@@ -199,7 +231,7 @@ class FlaskFormToEmail:
             return
 
         try:
-            table = self.dynamodb.Table(self.counter_table)
+            table = self._get_counter_table()
             table.update_item(
                 Key={"id": counter_key},
                 UpdateExpression="ADD #count :neg_one",
