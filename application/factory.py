@@ -122,15 +122,20 @@ def _create_app(name, log_level=logging.WARN):
     if app.config.get("STRIPE_ENABLED", False):
         stripe.init_app(app)
 
+    # Keep a direct reference to the compiled origin patterns. Older flask-cors
+    # exposed these via `CORS(...).options["origins"]`, but flask-cors 6.x renamed
+    # that to a private `_options`, so we no longer reach into the extension's
+    # internals from `is_allowed_origin()` below.
+    allowed_origins = origins_list_to_regex(
+        app,
+        app.config.get(
+            "ALLOWED_ORIGINS",
+            [".*"],
+        ),
+    )
     app.extensions["cors"] = CORS(
         app,
-        origins=origins_list_to_regex(
-            app,
-            app.config.get(
-                "ALLOWED_ORIGINS",
-                [".*"],
-            ),
-        ),
+        origins=allowed_origins,
         supports_credentials=True,
     )
     app.extensions["csp"] = CSP(app)
@@ -205,7 +210,7 @@ def _create_app(name, log_level=logging.WARN):
     compile_re_paths("PATTERNS_TO_404")
 
     def is_allowed_origin():
-        if app.extensions["cors"].options["origins"]:
+        if allowed_origins:
             origin = request.headers.get("Origin")
 
             if not origin:
@@ -213,10 +218,10 @@ def _create_app(name, log_level=logging.WARN):
                 return False
 
             if not try_match_any_pattern(
-                origin, app.extensions["cors"].options["origins"], caseSensitive=False
+                origin, allowed_origins, caseSensitive=False
             ) and not try_match_any_pattern(
                 f"{origin}/",
-                app.extensions["cors"].options["origins"],
+                allowed_origins,
                 caseSensitive=False,
             ):
                 app.logger.debug("Origin header not in allowed list: {}".format(origin))
