@@ -253,7 +253,7 @@ def _create_app(name, log_level=logging.WARN):
 
     @app.before_request
     def chk_shortcircuit():
-        if request.method == "OPTION" and app.config["SHORTCIRCUIT_OPTIONS"]:
+        if request.method == "OPTIONS" and app.config["SHORTCIRCUIT_OPTIONS"]:
             app.logger.debug("Shortcircuiting OPTIONS request")
             if is_allowed_origin():
                 return "", 200
