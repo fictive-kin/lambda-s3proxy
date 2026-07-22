@@ -70,6 +70,57 @@ S3PROXY_TRAILING_SLASH_REDIRECTION = true
 # used as a prefix to the file in it's S3 bucket.
 # S3PROXY_SUBROUTES = {"/wp-content/uploads/<path:url>" = "my-wp-backup-bucket"}
 
+# Prefix applied to cookie names and SSI variable names for variant groups (default: "variant_")
+# e.g. group "hero-test" → cookie "variant_hero-test", SSI variable $variant_hero_test
+# S3PROXY_VARIANT_PREFIX = "variant_"
+
+# S3 prefix where FlaskS3VariantsProxy looks for variant files (default: "variants")
+# Variant files are stored at: <S3PROXY_VARIANTS_DIR>/<group_name>/<variant_name>/<original_path>
+# S3PROXY_VARIANTS_DIR = "variants"
+
+# Variant groups for FlaskS3VariantsProxy. Each group assigns users to a named variant via a
+# cookie (<group_name>=<variant_name>). Weights are optional; omitting them gives equal weight.
+# Useful for A/B testing, member vs. non-member content, feature flags, localization, etc.
+# S3PROXY_VARIANTS = ""
+# [
+#   {
+#     "name": "hero-test",
+#     "type": "cookie",  # Optional. `cookie` is the default type
+#     "variants": [
+#       {"name": "control", "weight": 50},  # `weight` will be 50/50 if not specified
+#       {"name": "treatment", "weight": 50}
+#     ]
+#   },
+#   {
+#     "name": "member-status",
+#     "type": "permission-level",
+#     "variants": [
+#       {"name": "member"},
+#       {"name": "anonymous"}
+#     ]
+#   },
+#   {
+#     "name": "locale",
+#     "type": "geo",
+#     "geo_field": "country_code",  # Optional. `country_code` is the default. Pulls value from available CloudFront headers
+#     "default": "us",  # The default location to use, if no match is available for the header value
+#     "variants": [
+#       {"name": "eu", "geo_values": ["FR", "UK", "DE", "CH", ...]},
+#       {"name": "us", "geo_values": ["US"]},
+#     ]
+#   }
+# ]
+
+# Enable Server Side Include-style directive processing in HTML responses served by
+# FlaskS3VariantsProxy. Supports <!--#include virtual="path" --> and <!--#echo var="name" -->.
+# Include paths may reference variant variables using $group_name or ${group_name} tokens
+# (hyphens in group names become underscores, e.g. $member_status, $hero_test, $locale).
+S3PROXY_SSI_ENABLED = false
+
+# S3 key for a JSON file defining variant groups. Same format as S3PROXY_VARIANTS.
+# When set, this takes precedence over S3PROXY_VARIANTS.
+# S3_VARIANTS_FILE = "variants.json"
+
 # When invoking the preview function, often the first run of the function will return
 # incorrect results, thus this allows for an immediate second load, that resolves it
 ELEVENTY_BAD_LOAD_WRAPPER_HACK = false

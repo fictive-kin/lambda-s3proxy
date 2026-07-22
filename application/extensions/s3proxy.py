@@ -2,19 +2,27 @@
 
 from functools import cached_property, partial
 import json
+import re
 import time
 import typing as t
 
 import boto3
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
-from flask import Flask, abort, Blueprint, Response, redirect, request
+from flask import (
+    abort,
+    Blueprint,
+    Flask,
+    has_request_context,
+    redirect,
+    request,
+    Response,
+)
 import pytz
 from slugify import slugify
 
 from ..utils import add_no_cache, forced_host_redirect, str2bool, str2json
 from .crossover import FlaskGradualSwitchoverProxy
-
 
 # When working behind APIGateway, we have a hard limit of a 10 MB response payload and when
 # running in AWS Lambda, the hard limit is lowered to 6MB. We set it to 4.5MB so as to be sure
@@ -113,14 +121,18 @@ class FlaskS3Proxy:
 
     @property
     def prefix(self) -> str | None:
-        if self._prefix is not None:
-            return self._prefix
-
         if self.app is None:
             raise ValueError("FlaskS3Proxy is not fully initialized")
 
-        self._prefix = self.app.config.get("S3PROXY_PREFIX")
-        return self._prefix
+        base_prefix = self.app.config.get("S3PROXY_PREFIX", self._prefix)
+
+        if has_request_context() and self.app.config.get("S3PROXY_PR_DEPLOY_HANDLER"):
+            host = request.headers.get("X-FK-Host", request.host)
+            if match := re.match(r"^pr-(\d+)\.", host):
+                pr_prefix = f"pr-{match.group(1)}"
+                return f"{base_prefix}/{pr_prefix}" if base_prefix else pr_prefix
+
+        return base_prefix
 
     @prefix.setter
     def prefix(self, value: str | None = None):

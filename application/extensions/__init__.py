@@ -5,6 +5,7 @@ from .form2email import FlaskFormToEmail
 from .geography import FlaskGeography, FlaskGeographyResponse
 from .redirects import FlaskJSONRedirects
 from .s3proxy import FlaskS3Proxy, FlaskS3ProxyBlueprint
+from .variants import FlaskS3VariantsProxy
 from .session import FlaskEncryptedSession
 
 
@@ -19,4 +20,5 @@ __all__ = [
     "FlaskJSONRedirects",
     "FlaskS3Proxy",
     "FlaskS3ProxyBlueprint",
+    "FlaskS3VariantsProxy",
 ]

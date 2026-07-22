@@ -4,6 +4,7 @@ import logging
 import re
 import time
 
+from botocore.exceptions import ClientError
 from dynaconf import FlaskDynaconf
 from flask import Flask, abort, request
 from flask_cors import CORS
@@ -22,6 +23,7 @@ from application.extensions import (
     FlaskJSONAuthorizer,
     FlaskJSONRedirects,
     FlaskS3Proxy,
+    FlaskS3VariantsProxy,
     stripe,
 )
 from application.utils import forced_host_redirect, init_extension
@@ -154,9 +156,22 @@ def _create_app(name, log_level=logging.WARN):
             bots_on_new=app.config.get("SWITCHOVER_BOTS_ON_NEW"),
         )
 
-    app.extensions["s3_proxy"] = FlaskS3Proxy(
-        app, switchover_proxy=app.extensions.get("switchover_proxy")
+    app.extensions["s3_proxy"] = FlaskS3VariantsProxy(
+        app,
+        switchover_proxy=app.extensions.get("switchover_proxy"),
     )
+    variants_file = app.config.get("S3_VARIANTS_FILE")
+    if variants_file:
+        try:
+            obj = app.extensions["s3_proxy"].get_file(variants_file)
+            if obj:
+                app.extensions["s3_proxy"].process_variants_from_file(obj["Body"])
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "NoSuchKey":
+                app.logger.warning(f"Variants file not found: {variants_file}")
+            else:
+                app.logger.exception(exc)
+
     app.extensions["geography"] = FlaskGeography(app)
 
     app.extensions["authorizer"] = init_extension(
@@ -286,14 +301,16 @@ def _create_app(name, log_level=logging.WARN):
                         response.headers["Cache-Control"] = (
                             "public,max-age=2592000,s-maxage=2592000,immutable"
                         )
-                    if not response.headers.get("Vary"):
-                        response.headers["Vary"] = (
-                            "Accept-Encoding,Origin,Access-Control-Request-Headers,Access-Control-Request-Method"
-                        )
             except AttributeError as exc:
                 if app.debug:
                     app.logger.exception(exc)
 
+            if not response.headers.get("Vary"):
+                response.headers["Vary"] = (
+                    "Accept-Encoding,Access-Control-Request-Headers,Access-Control-Request-Method,Host,Origin"
+                )
+            elif "host" not in response.headers.get("Vary").lower():
+                response.headers["Vary"] += ",Host"
             return response
 
     app.logger.info(app.url_map)
