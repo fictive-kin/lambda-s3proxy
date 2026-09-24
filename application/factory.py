@@ -17,7 +17,7 @@ from application.extensions import (
     Flask11tyServerless,
     # FlaskAPIGatewayOverflowExtension,
     FlaskEncryptedSession,
-    FlaskFormToEmail,
+    FlaskFictiveForms,
     FlaskGeography,
     FlaskGradualSwitchoverProxy,
     FlaskJSONAuthorizer,
@@ -184,14 +184,20 @@ def _create_app(name, log_level=logging.WARN):
         app, FlaskJSONRedirects, "S3_REDIRECTS_FILE"
     )
 
-    if app.config.get("MAIL_SERVER"):
-        app.extensions["mail"] = init_extension(
-            app, FlaskFormToEmail, "S3_FORM2EMAIL_FILE"
+    # S3_FORM2EMAIL_FILE is the legacy key, from before the extension was renamed
+    app.extensions["fictiveforms"] = init_extension(
+        app,
+        FlaskFictiveForms,
+        (
+            "S3_FICTIVEFORMS_FILE"
+            if app.config.get("S3_FICTIVEFORMS_FILE")
+            else "S3_FORM2EMAIL_FILE"
+        ),
+    )
+    if app.debug:
+        app.extensions["fictiveforms"].add_test(
+            "/form2email", recipient="jared@fictivekin.com"
         )
-        if app.debug:
-            app.extensions["mail"].add_test(
-                "/form2email", recipient="jared@fictivekin.com"
-            )
 
     # Due to the redirects possibly using these routes, we are adding these after having
     # instantiated all the redirects. If not for that, we could have used a config value

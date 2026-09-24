@@ -41,7 +41,8 @@ S3_REDIRECTS_FILE = 'redirects.json'
 S3_AUTHORIZER_FILE = 'authorizations.json'
 S3_ELEVENTY_FILE = '11ty-serverless.json'
 S3_LOCALES_FILE = 'locales.json'
-S3_FORM2EMAIL_FILE = 'form-to-email.json'
+# Routes file for FlaskFictiveForms (the legacy S3_FORM2EMAIL_FILE key is still honoured)
+S3_FICTIVEFORMS_FILE = 'form-to-email.json'
 
 # Status code to use for redirects generated from FlaskS3Proxy
 S3PROXY_REDIRECT_CODE = 302
@@ -173,22 +174,78 @@ MAIL_USE_TLS = true
 # The default mail recipient when no other is specified in the routes below
 # MAIL_RECIPIENT = "someone@example.com"
 
-# A list of dictionaries that creates routes that send an email to the provided recipient
-# (or the default one set above) using the provided template (path to file, or template
-# string) that FlaskForm2Email will use to create processors for form submission handling.
-# Each route may include an optional "counter_key" that overrides the default key used
-# to track submission counts in DynamoDB (defaults to the slugified route path).
-# FORM2EMAIL_ROUTES = [
-#     {"route": "/form2email", "template": "email/simple.html", "recipient": "me@example.com", "counter_key": "contact-form"},
+# FlaskFictiveForms creates form submission endpoints from a list of routes. Each
+# submission is validated, counted, and then passed through to a 3rd party API and/or
+# emailed (form2email). The FICTIVEFORMS_* keys below fall back to the legacy
+# FORM2EMAIL_* keys when they are not set.
+#
+# Route options:
+#   - "route": the URL path the form is POSTed to
+#   - "template": email template (path to file, s3proxy://key, or template string). Emails
+#     are sent to "recipient" (or MAIL_RECIPIENT), and require MAIL_SERVER to be set.
+#   - "recipient" / "encryption_key": per-route email overrides
+#   - "counter_key": overrides the key used to track submission counts in DynamoDB
+#     (defaults to the slugified route path)
+#   - "required_fields": fields that must be non-empty (defaults to ["name", "email"], or
+#     to none for passthrough routes)
+#   - "passthrough": forwards the submission to a 3rd party API. With it set, an email is
+#     only sent when a "template" is also given. Without it, an email is always sent,
+#     using email/simple.html when no template is given.
+#
+# Passthrough "type" selects how the API token is obtained:
+#   - "oauth" (default): OAuth2 client credentials exchange (client_id + client_secret)
+#   - "simple": the client_secret is POSTed to token_url, and the token and its expiry are
+#     read from the response using "token_key" and "expires_key" (dotted paths allowed).
+#     The expiry may be epoch seconds/milliseconds, seconds from now, or a date string.
+# Use "config://KEY" for client_id/client_secret so the secret is read from this config
+# (e.g. .secrets.toml or env) rather than the routes file.
+#
+# FICTIVEFORMS_ROUTES = [
+#     {"route": "/contact", "template": "email/simple.html", "recipient": "me@example.com", "counter_key": "contact-form"},
+#     {
+#         "route": "/signup",
+#         "required_fields": ["email"],
+#         "passthrough": {
+#             "url": "https://api.example.com/v1/submissions",
+#             "token_url": "https://auth.example.com/oauth/token",
+#             "client_id": "config://SIGNUP_CLIENT_ID",
+#             "client_secret": "config://SIGNUP_CLIENT_SECRET",
+#             "scope": "submissions:write",          # optional
+#             "audience": "https://api.example.com", # optional
+#             "auth_method": "basic",                # or "post" (credentials in the token request body)
+#             "format": "json",                      # or "form"
+#             "field_map": {"email": "emailAddress"},
+#             "include_unmapped": true,
+#             "extra": {"source": "website"},
+#             "headers": {},
+#             "timeout": 10
+#         }
+#     },
+#     {
+#         "route": "/enquiry",
+#         "template": "email/simple.html",          # also send an email
+#         "passthrough": {
+#             "type": "simple",
+#             "url": "https://api.example.com/forms",
+#             "token_url": "https://api.example.com/auth/token",
+#             "client_secret": "config://ENQUIRY_CLIENT_SECRET",
+#             "secret_field": "client_secret",       # name the secret is posted as
+#             "token_request_format": "json",        # or "form"
+#             "token_key": "data.token",
+#             "expires_key": "data.expires",
+#             "token_header": "Authorization",       # available to both types
+#             "token_prefix": "Bearer "
+#         }
+#     },
 # ]
 
 # DynamoDB table name for storing per-route form submission counters.
 # The table must have a partition key named "id" (String).
 # When set, each successful submission atomically increments the counter and
-# returns the new value as "count" in the JSON response.
-# FORM2EMAIL_COUNTER_TABLE = "my-form-counters"
+# returns the new value as "submission_count" in the JSON response.
+# FICTIVEFORMS_COUNTER_TABLE = "my-form-counters"
 
-# The encryption key to use, should you wish the email payloads be encrypted
+# The encryption key form2email uses, should you wish the email payloads be encrypted
 # FORM2EMAIL_ENCRYPTION_KEY = """
 # -----BEGIN PGP PUBLIC KEY BLOCK-----
 # asdfasdfsdfasdf
