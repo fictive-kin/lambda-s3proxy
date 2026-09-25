@@ -18,7 +18,7 @@ from slugify import slugify
 
 from .counter import SubmissionCounter
 from .form2email import DEFAULT_TEMPLATE, FormToEmail
-from .passthrough import Passthrough, PassthroughError
+from .passthrough import Passthrough, PassthroughError, response_content
 
 
 DEFAULT_REQUIRED_FIELDS = ("name", "email")
@@ -272,11 +272,12 @@ class FlaskFictiveForms:
 
             form_data = request.form.to_dict()
             count = self.counter.increment(resolved_counter_key)
+            upstream_response = None
 
             if passthrough:
                 log.debug("fictiveforms: %s submitting to %s", route_url, passthrough)
                 try:
-                    passthrough.submit(form_data)
+                    upstream_response = passthrough.submit(form_data)
                 except PassthroughError as exc:
                     self.counter.decrement(resolved_counter_key)
                     self.app.logger.exception(exc)
@@ -318,6 +319,8 @@ class FlaskFictiveForms:
                 "message": "Your message has been sent",
                 "submission_count": count or 0,
             }
+            if upstream_response is not None:
+                response["upstream"] = response_content(upstream_response)
             log.debug("fictiveforms: %s submission complete (count=%s)", route_url, count)
 
             return jsonify(response), 200

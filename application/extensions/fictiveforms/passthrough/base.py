@@ -118,6 +118,20 @@ def describe_response_keys(data: t.Any) -> str:
     return f"response keys: {key_paths(data) or 'none'}"
 
 
+def response_content(response: requests.Response) -> t.Any:
+    """The decoded body of *response*: parsed JSON for JSON content types
+    (including ``+json`` suffixes), otherwise the body as a string"""
+
+    content_type = response.headers.get("Content-Type", "")
+    mimetype = content_type.split(";", 1)[0].strip().lower()
+    if mimetype == "application/json" or mimetype.endswith("+json"):
+        try:
+            return response.json()
+        except ValueError:
+            pass
+    return response.text
+
+
 @dataclass
 class CachedToken:
     access_token: str
